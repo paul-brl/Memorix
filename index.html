@@ -407,7 +407,7 @@
 
     // ─── UpgradeModal ─────────────────────────────────────────────────────────
     function UpgradeModal({currentPlanId, onClose}){
-      const ADMIN_EMAIL="votre-email@exemple.com"; // ← remplace par ton email
+      const ADMIN_EMAIL="paul@bourel.fr"; // ← remplace par ton email
       const [copied,setCopied]=useState(false);
       const mainPlans=PLANS.slice(0,4);
       const copy=()=>{navigator.clipboard?.writeText(ADMIN_EMAIL);setCopied(true);setTimeout(()=>setCopied(false),2000);};
@@ -601,7 +601,7 @@
     function Landing({onBack,onRegister}){
       const [tab,setTab]=useState("semester"),[contactPlan,setContactPlan]=useState(null);
       const semPlans=PLANS.slice(0,4),grpPlans=PLANS.filter(p=>p.id.startsWith("g-")),display=tab==="semester"?semPlans:grpPlans;
-      const ADMIN_EMAIL="votre-email@exemple.com"; // ← Remplace par ton email
+      const ADMIN_EMAIL="paul@bourel.fr"; // ← Remplace par ton email
 
       return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
         <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"14px 32px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
