@@ -8,1315 +8,872 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #f5f3ee; }
     input[type=range] { accent-color: #2c4a7c; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes fadeIn  { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
-  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
+// ─── Supabase ────────────────────────────────────────────────────────────────
+const SUPA_URL = "https://cytdlgvtwvofwrgqnkhe.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5dGRsZ3Z0d3ZvZndyZ3Fua2hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMTU4MTIsImV4cCI6MjA5NDU5MTgxMn0.QLQrzrkAjDjEY1x0VJwMguteUYdcGJ_pREX03VElyOs";
+const EDGE_URL = `${SUPA_URL}/functions/v1`;
+const H = { "Content-Type":"application/json", "apikey":SUPA_KEY, "Authorization":`Bearer ${SUPA_KEY}` };
 
-  <script type="text/babel">
-    const { useState, useEffect, useCallback, useMemo, useRef } = React;
-
-    // ─── Supabase ────────────────────────────────────────────────────────────
-    const SUPA_URL  = "https://cytdlgvtwvofwrgqnkhe.supabase.co";
-    const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5dGRsZ3Z0d3ZvZndyZ3Fua2hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMTU4MTIsImV4cCI6MjA5NDU5MTgxMn0.QLQrzrkAjDjEY1x0VJwMguteUYdcGJ_pREX03VElyOs";
-    const EDGE_URL  = `${SUPA_URL}/functions/v1`;
-    const supaHeaders = { "Content-Type": "application/json", "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` };
-
-    const supa = {
-      getCards: async () => {
-        try {
-          const r = await fetch(`${SUPA_URL}/rest/v1/cards?select=*`, { headers: supaHeaders });
-          const data = await r.json();
-          return data.map(c => ({ id: c.id, front: c.front, back: c.back, groupId: c.group_id, num: c.num, packetId: c.packet_id }));
-        } catch { return null; }
-      },
-      upsertCard: async (card) => {
-        try {
-          await fetch(`${SUPA_URL}/rest/v1/cards`, {
-            method: "POST",
-            headers: { ...supaHeaders, "Prefer": "resolution=merge-duplicates" },
-            body: JSON.stringify({ id: card.id, front: card.front, back: card.back, group_id: card.groupId, num: card.num, packet_id: card.packetId }),
-          });
-        } catch {}
-      },
-      deleteCard: async (id) => {
-        try {
-          await fetch(`${SUPA_URL}/rest/v1/cards?id=eq.${id}`, { method: "DELETE", headers: supaHeaders });
-        } catch {}
-      },
-      getAccounts: async () => {
-        try {
-          const r = await fetch(`${SUPA_URL}/rest/v1/accounts?select=*`, { headers: supaHeaders });
-          return await r.json();
-        } catch { return []; }
-      },
-      upsertAccount: async (acc) => {
-        try {
-          await fetch(`${SUPA_URL}/rest/v1/accounts`, {
-            method: "POST",
-            headers: { ...supaHeaders, "Prefer": "resolution=merge-duplicates" },
-            body: JSON.stringify({ username: acc.username, password: acc.password, email: acc.email || "", plan_id: acc.planId, groups: acc.groups }),
-          });
-        } catch {}
-      },
-      deleteAccount: async (username) => {
-        try {
-          await fetch(`${SUPA_URL}/rest/v1/accounts?username=eq.${username}`, { method: "DELETE", headers: supaHeaders });
-        } catch {}
-      },
-      checkVerification: async (email, code) => {
-        try {
-          const now = new Date().toISOString();
-          const r = await fetch(
-            `${SUPA_URL}/rest/v1/verifications?email=eq.${encodeURIComponent(email)}&code=eq.${code}&expires_at=gt.${encodeURIComponent(now)}&select=email`,
-            { headers: supaHeaders }
-          );
-          const data = await r.json();
-          return Array.isArray(data) && data.length > 0;
-        } catch { return false; }
-      },
-    };
-
-    // ─── Local storage ───────────────────────────────────────────────────────
-    const storage = {
-      get:  (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } },
-      set:  (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
-      del:  (k) => { try { localStorage.removeItem(k); } catch {} },
-    };
-
-    // ─── Validation ──────────────────────────────────────────────────────────
-    const validateEmail   = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
-    const validatePassword = p => {
-      const hasLen     = p.length >= 8;
-      const hasSpecial = /[!@#$%^&*()\-_=+\[\]{};:'",.<>?/\\|`~]/.test(p);
-      return { ok: hasLen && hasSpecial, hasLen, hasSpecial };
-    };
-
-    // ─── Stripe Payment Links ────────────────────────────────────────────────
-    const STRIPE_PAYMENT_LINKS = {
-      "sem1":       "https://buy.stripe.com/REMPLACE_MOI",
-      "sem2":       "https://buy.stripe.com/REMPLACE_MOI",
-      "both":       "https://buy.stripe.com/REMPLACE_MOI",
-      "g-cell-bio": "https://buy.stripe.com/REMPLACE_MOI",
-      "g-histo":    "https://buy.stripe.com/REMPLACE_MOI",
-      "g-biochem":  "https://buy.stripe.com/REMPLACE_MOI",
-      "g-biophys":  "https://buy.stripe.com/REMPLACE_MOI",
-      "g-biostat":  "https://buy.stripe.com/REMPLACE_MOI",
-      "g-anatomie": "https://buy.stripe.com/REMPLACE_MOI",
-      "g-physio":   "https://buy.stripe.com/REMPLACE_MOI",
-      "g-medic":    "https://buy.stripe.com/REMPLACE_MOI",
-      "g-ssh":      "https://buy.stripe.com/REMPLACE_MOI",
-    };
-    function redirectToStripe(planId, username) {
-      const baseUrl = STRIPE_PAYMENT_LINKS[planId];
-      if (!baseUrl || baseUrl.includes("REMPLACE_MOI")) {
-        alert("Le paiement en ligne n'est pas encore configuré pour ce plan.");
-        return false;
-      }
-      const ref = encodeURIComponent(`${username}|${planId}`);
-      window.location.href = `${baseUrl}?client_reference_id=${ref}`;
-      return true;
-    }
-
-    // ─── Constants ──────────────────────────────────────────────────────────
-    const GROUPS = [
-      // ── Pré-rentrée ──
-      { id: "pr-cell-bio", label: "Biologie cellulaire",                    sem: 0, nums: [1] },
-      { id: "pr-histo",    label: "Histologie & Biologie du développement",  sem: 0, nums: [1] },
-      { id: "pr-biochem",  label: "Biochimie",                               sem: 0, nums: [1] },
-      { id: "pr-biophys",  label: "Biophysique",                             sem: 0, nums: [1] },
-      { id: "pr-biostat",  label: "Biostatistique",                          sem: 0, nums: [1] },
-      // ── Semestre 1 ──
-      { id: "cell-bio", label: "Biologie cellulaire",                    sem: 1, nums: [1,2,3]   },
-      { id: "histo",    label: "Histologie & Biologie du développement",  sem: 1, nums: [1,2,3]   },
-      { id: "biochem",  label: "Biochimie",                               sem: 1, nums: [1,2,3]   },
-      { id: "biophys",  label: "Biophysique",                             sem: 1, nums: [1,2,3]   },
-      { id: "biostat",  label: "Biostatistique",                          sem: 1, nums: [1]        },
-      // ── Semestre 2 ──
-      { id: "anatomie", label: "Anatomie",                                sem: 2, nums: [1,2,3]   },
-      { id: "physio",   label: "Physiologie",                             sem: 2, nums: [1,2,3,4] },
-      { id: "medic",    label: "Introduction à la connaissance du médicament", sem: 2, nums: [1,2,3] },
-      { id: "ssh",      label: "Sciences sociales et humaines",           sem: 2, nums: [1,2,3]   },
-    ];
-
-    // ── Label with semester context (fixes duplicate names across semesters) ──
-    const groupLabel = (g) => {
-      const semTag = g.sem === 0 ? " — Pré-rentrée" : g.sem === 1 ? " — Sem. 1" : " — Sem. 2";
-      return g.label + semTag;
-    };
-
-    const PACKETS = [
-      { id: "prioritaire", label: "Prioritaire" },
-      { id: "important",   label: "Important"   },
-      { id: "utile",       label: "Utile"        },
-    ];
-    const PRERENTREE_IDS = GROUPS.filter(g => g.sem === 0).map(g => g.id);
-    const SEM1 = GROUPS.filter(g => g.sem === 1).map(g => g.id);
-    const SEM2 = GROUPS.filter(g => g.sem === 2).map(g => g.id);
-    const ALL  = [...SEM1, ...SEM2];
-
-    const PLANS = [
-      { id: "sem1",       label: "Semestre 1",     price: "99 €",   groups: SEM1, desc: "Toutes les matières du semestre 1" },
-      { id: "sem2",       label: "Semestre 2",     price: "149 €",  groups: SEM2, desc: "Toutes les matières du semestre 2" },
-      { id: "both",       label: "Année complète", price: "200 €",  groups: ALL,  desc: "Tous les semestres · Accès illimité" },
-      { id: "prerentree", label: "Pré-rentrée",    price: "Gratuit",groups: PRERENTREE_IDS, desc: "5 matières · Cours 1 offert" },
-      { id: "g-cell-bio", label: "Biologie cellulaire",    price: "49 €", groups: ["cell-bio"], desc: "Cours 1, 2 et 3" },
-      { id: "g-histo",    label: "Histologie & Bio. dév.", price: "39 €", groups: ["histo"],    desc: "Cours 1, 2 et 3" },
-      { id: "g-biochem",  label: "Biochimie",              price: "39 €", groups: ["biochem"],  desc: "Cours 1, 2 et 3" },
-      { id: "g-biophys",  label: "Biophysique",            price: "19 €", groups: ["biophys"],  desc: "Cours 1, 2 et 3" },
-      { id: "g-biostat",  label: "Biostatistique",         price: "9 €",  groups: ["biostat"],  desc: "Cours 1" },
-      { id: "g-anatomie", label: "Anatomie",               price: "49 €", groups: ["anatomie"], desc: "Cours 1, 2 et 3" },
-      { id: "g-physio",   label: "Physiologie",            price: "49 €", groups: ["physio"],   desc: "Cours 1, 2, 3 et 4" },
-      { id: "g-medic",    label: "Intro. médicament",      price: "39 €", groups: ["medic"],    desc: "Cours 1, 2 et 3" },
-      { id: "g-ssh",      label: "Sciences sociales",      price: "29 €", groups: ["ssh"],      desc: "Cours 1, 2 et 3" },
-    ];
-
-    const ADMIN_USERNAME = "admin";
-    const ADMIN_PASSWORD = "medecine2024";
-    const DEFAULT_SETTINGS = { againMin:1, hardMin:5, goodMin:10, easyDays:4, newCardsPerDay:20, maxReviewsPerDay:100, dailyGroups:[], dailyPackets:[] };
-    const INITIAL_CARDS = [
-      { id:"cb1p1", front:"Qu'est-ce que la membrane plasmique ?",   back:"Bicouche lipidique composée de phospholipides, cholestérol et protéines membranaires. Rôle de barrière sélective et d'interface de signalisation cellulaire.", groupId:"cell-bio", num:1, packetId:"prioritaire" },
-      { id:"cb1p2", front:"Décrivez les phases du cycle cellulaire", back:"G1 (croissance) → S (réplication ADN) → G2 (vérification) → M (mitose). Points de contrôle régulés par complexes cycline-CDK et protéine Rb.", groupId:"cell-bio", num:1, packetId:"prioritaire" },
-      { id:"cb1i1", front:"Qu'est-ce que l'apoptose ?",              back:"Mort cellulaire programmée. Voie intrinsèque (mitochondriale → caspase-9) et extrinsèque (récepteurs de mort → caspase-8). Sans inflammation.", groupId:"cell-bio", num:1, packetId:"important" },
-    ];
-
-    // ─── SRS ────────────────────────────────────────────────────────────────
-    function computeNext(prev, rating, s = DEFAULT_SETTINGS) {
-      const { againMin=1, hardMin=5, goodMin=10, easyDays=4 } = s;
-      const { state="new", step=0, interval=1, ease=2.5, reps=0, lapses=0, lapseInt=1 } = prev || {};
-      const mf = m => new Date(Date.now() + m*60000).toISOString();
-      const df = d => new Date(Date.now() + d*86400000).toISOString();
-      const base = { ease, reps, lapses, lapseInt };
-      if (state==="new"||state==="learning") {
-        if (rating===1) return {...base, state:"learning", step:0, interval:againMin, next:mf(againMin)};
-        if (rating===2) return {...base, state:"learning", step:1, interval:hardMin,  next:mf(hardMin)};
-        if (rating===3) { if(step>=2) return {...base,state:"review",step:0,interval:1,reps:1,lapseInt:0,next:df(1)}; return {...base,state:"learning",step:2,interval:goodMin,next:mf(goodMin)}; }
-        return {...base, state:"review", step:0, interval:easyDays, reps:1, lapseInt:0, next:df(easyDays)};
-      }
-      if (state==="review") {
-        if (rating===1) { const li=Math.max(1,Math.round(interval*0.2)); return {state:"relearning",step:0,interval,ease:Math.max(1.3,ease-0.2),reps,lapses:lapses+1,lapseInt:li,next:mf(againMin)}; }
-        let ni, ne=ease;
-        if(rating===2){ni=Math.max(interval+1,Math.round(interval*1.2));ne=Math.max(1.3,ease-0.15);}
-        else if(rating===3){ni=Math.max(interval+1,Math.round(interval*ease));}
-        else{ni=Math.max(interval+1,Math.round(interval*ease*1.3));ne=Math.min(3.5,ease+0.15);}
-        return {state:"review",step:0,interval:ni,ease:ne,reps:reps+1,lapses,lapseInt:0,next:df(ni)};
-      }
-      if (rating===1) return {...prev, next:mf(againMin)};
-      const ni=Math.max(1,lapseInt); return {state:"review",step:0,interval:ni,ease,reps:reps+1,lapses,lapseInt:0,next:df(ni)};
-    }
-    function getIntervalLabel(prev, rating, s=DEFAULT_SETTINGS) {
-      const r=computeNext(prev,rating,s);
-      if(r.state==="learning"||r.state==="relearning"){const m=Math.max(1,Math.round((new Date(r.next)-Date.now())/60000));return m<60?`${m} min`:`${Math.round(m/60)} h`;}
-      const d=r.interval; if(d===1)return"1 jour";if(d<7)return`${d} j`;if(d<30)return`${Math.round(d/7)} sem.`;if(d<365)return`${Math.round(d/30)} mois`;return`${(d/365).toFixed(1)} an${d>=730?"s":""}`;
-    }
-    function isDue(p)  { return !p?.next || new Date(p.next) <= new Date(); }
-    function isNew(p)  { return !p || p.state==="new"; }
-    function stateLabel(p) { if(!p||p.state==="new")return"Nouveau";if(p.state==="learning")return"Apprentissage";if(p.state==="relearning")return"Réapprentissage";return`Révision · J+${p.interval}`; }
-    function filterCards(cards,gid,num,pkId){return cards.filter(c=>c.groupId===gid&&c.num===num&&c.packetId===pkId);}
-    function packetStats(cards,prog,gid,num,pkId){const l=filterCards(cards,gid,num,pkId);return{total:l.length,due:l.filter(c=>isDue(prog[c.id])).length};}
-    function buildQueue(cardList,prog,settings){
-      const {dailyGroups,dailyPackets,maxReviewsPerDay}=settings;
-      return cardList.filter(c=>{const p=prog[c.id];if(!isDue(p))return false;if(isNew(p)){if(dailyGroups.length>0&&!dailyGroups.includes(c.groupId))return false;if(dailyPackets.length>0&&!dailyPackets.includes(c.packetId))return false;}return true;}).slice(0,maxReviewsPerDay);
-    }
-    function globalDue(cards,prog,ids,settings,pkId=null){const el=cards.filter(c=>ids.includes(c.groupId)&&(!pkId||c.packetId===pkId));return buildQueue(el,prog,settings).length;}
-
-    // ─── Design ─────────────────────────────────────────────────────────────
-    const C={bg:"#f5f3ee",surface:"#ffffff",border:"#d0ccc4",text:"#1a1917",textMed:"#4e4a46",textLt:"#7a7672",accent:"#2c4a7c",accentBg:"#eef3fb",prio:"#9b2335",prioBg:"#fef2f4",imp:"#8b5e00",impBg:"#fef8e8",util:"#1e5a3a",utilBg:"#edf7f2",again:"#b91c1c",againBg:"#fff0f0",hard:"#b45309",hardBg:"#fff8ed",good:"#15803d",goodBg:"#edfdf3",easy:"#1d4ed8",easyBg:"#eff6ff"};
-    const pC=id=>id==="prioritaire"?C.prio:id==="important"?C.imp:C.util;
-    const pB=id=>id==="prioritaire"?C.prioBg:id==="important"?C.impBg:C.utilBg;
-    const font="system-ui,-apple-system,'Segoe UI',sans-serif";
-    const serif="Georgia,'Times New Roman',serif";
-    const mono="'Courier New',Courier,monospace";
-    const noSel={userSelect:"none",WebkitUserSelect:"none",MozUserSelect:"none"};
-    const iLine={fontFamily:font,fontSize:14,color:C.text,background:"transparent",width:"100%",outline:"none",boxSizing:"border-box",border:"none",borderBottom:`1.5px solid ${C.border}`,padding:"8px 0"};
-    const iBox={fontFamily:font,fontSize:14,color:C.text,background:"transparent",width:"100%",outline:"none",boxSizing:"border-box",border:`1.5px solid ${C.border}`,borderRadius:6,padding:"10px 12px",resize:"vertical"};
-
-    // ─── Base components ─────────────────────────────────────────────────────
-    function Tag({color,bg,children,small}){return <span style={{display:"inline-block",fontFamily:mono,fontSize:small?8:9,letterSpacing:2,textTransform:"uppercase",padding:small?"2px 6px":"3px 8px",borderRadius:3,background:bg||C.accentBg,color:color||C.accent,whiteSpace:"nowrap"}}>{children}</span>;}
-    function Btn({fill,danger,small,full,disabled,children,style,...rest}){return <button {...rest} disabled={disabled} style={{fontFamily:font,fontSize:small?12:13,fontWeight:500,padding:small?"6px 12px":"9px 18px",cursor:disabled?"not-allowed":"pointer",border:`1.5px solid ${fill?C.accent:danger?C.again:C.border}`,borderRadius:6,background:fill?C.accent:"transparent",color:fill?"#fff":danger?C.again:C.text,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,opacity:disabled?0.4:1,width:full?"100%":undefined,...style}}>{children}</button>;}
-    function Modal({children,onClose,width=440}){return <div style={{position:"fixed",inset:0,background:"rgba(26,25,23,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(2px)"}} onClick={e=>e.target===e.currentTarget&&onClose()}><div style={{background:C.surface,borderRadius:12,padding:"32px 28px",width,maxWidth:"94vw",maxHeight:"92vh",overflowY:"auto",position:"relative",boxShadow:"0 20px 60px rgba(0,0,0,0.18)"}}><button onClick={onClose} style={{position:"absolute",top:14,right:16,background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.textLt}}>×</button>{children}</div></div>;}
-    function Lbl({children,color}){return <p style={{fontFamily:mono,fontSize:9,letterSpacing:2.5,textTransform:"uppercase",color:color||C.textLt,margin:"0 0 6px"}}>{children}</p>;}
-    function Nav({left,center,right}){return <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}><div>{left}</div><div style={{fontFamily:mono,fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.textLt}}>{center}</div><div style={{display:"flex",gap:8,alignItems:"center"}}>{right}</div></div>;}
-
-    function PasswordField({ label, value, onChange, placeholder, onKeyDown, hint }) {
-      const [show, setShow] = useState(false);
-      return (
-        <div>
-          <Lbl>{label}</Lbl>
-          <div style={{ position: "relative" }}>
-            <input style={{ ...iLine, paddingRight: 36 }} type={show ? "text" : "password"} placeholder={placeholder || "••••••••"} value={value} onChange={onChange} onKeyDown={onKeyDown}/>
-            <button type="button" onClick={() => setShow(s => !s)} style={{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16,padding:"2px 4px",lineHeight:1}} title={show?"Masquer":"Afficher"}>{show?"🙈":"👁"}</button>
-          </div>
-          {hint && <p style={{ fontSize: 11, color: C.textLt, margin: "5px 0 0", lineHeight: 1.5 }}>{hint}</p>}
-        </div>
-      );
-    }
-
-    function PasswordStrength({ password }) {
-      if (!password) return null;
-      const { hasLen, hasSpecial } = validatePassword(password);
-      return (
-        <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
-          <span style={{fontSize:11,display:"inline-flex",alignItems:"center",gap:4,color:hasLen?C.good:C.textLt}}>{hasLen?"✓":"○"} 8 caractères min.</span>
-          <span style={{fontSize:11,display:"inline-flex",alignItems:"center",gap:4,color:hasSpecial?C.good:C.textLt}}>{hasSpecial?"✓":"○"} 1 caractère spécial (!@#…)</span>
-        </div>
-      );
-    }
-
-    function PaymentBanner({status, onClose}) {
-      if (!status) return null;
-      const ok = status === "success";
-      return (
-        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:200,background:ok?C.goodBg:C.againBg,borderBottom:`2px solid ${ok?C.good:C.again}`,padding:"16px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",boxShadow:"0 2px 16px rgba(0,0,0,0.1)"}}>
-          <p style={{fontSize:14,color:ok?C.good:C.again,margin:0,fontWeight:600}}>{ok?"✓ Paiement confirmé ! Ton abonnement est en cours d'activation.":"✕ Paiement annulé — tu peux réessayer depuis ton espace."}</p>
-          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:ok?C.good:C.again,fontSize:20,lineHeight:1,marginLeft:16}}>×</button>
-        </div>
-      );
-    }
-
-    function MultiToggle({label,options,value,onChange,colorFn}){
-      const isAll=value.length===0,toggle=v=>onChange(value.includes(v)?value.filter(x=>x!==v):[...value,v]);
-      const TBtn=({active,onClick,label:lbl,color,bg})=><button onClick={onClick} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"7px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${active?(color||C.accent):C.border}`,background:active?(bg||C.accentBg):"transparent",color:active?(color||C.accent):C.textMed,display:"flex",alignItems:"center",gap:5}}>{active&&<span style={{fontSize:10}}>✓</span>}{lbl}</button>;
-      return <div><Lbl>{label}</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:8}}><TBtn active={isAll} onClick={()=>onChange([])} label="Tout" color={C.accent} bg={C.accentBg}/>{options.map(o=>{const col=colorFn?colorFn(o.value):C.accent,bg2=col===C.prio?C.prioBg:col===C.imp?C.impBg:col===C.util?C.utilBg:C.accentBg;return<TBtn key={o.value} active={value.includes(o.value)} onClick={()=>toggle(o.value)} label={o.label} color={col} bg={bg2}/>;})}</div><p style={{fontSize:11,color:C.textLt,margin:"8px 0 0"}}>{isAll?"Toutes les options incluses":`${value.length} sélectionnée${value.length>1?"s":""}`}</p></div>;
-    }
-
-    function ClassSelector({label,options,value,onChange,columns="auto"}){
-      return <div><Lbl>{label}</Lbl><div style={{display:"grid",gridTemplateColumns:columns==="auto"?"repeat(auto-fill,minmax(160px,1fr))":`repeat(${columns},1fr)`,gap:8,marginTop:8}}>{options.map(opt=>{const active=value===opt.value,col=opt.color||C.accent,bg=opt.bg||C.accentBg;return<button key={String(opt.value)} onClick={()=>onChange(opt.value)} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"10px 12px",cursor:"pointer",borderRadius:8,border:`2px solid ${active?col:C.border}`,background:active?bg:C.surface,color:active?col:C.textMed,textAlign:"left",lineHeight:1.4}} onMouseEnter={e=>{if(!active)e.currentTarget.style.borderColor=col;}} onMouseLeave={e=>{if(!active)e.currentTarget.style.borderColor=C.border;}}>{active&&<span style={{marginRight:6}}>✓</span>}{opt.label}</button>;})}</div></div>;
-    }
-
-    // ─── Login ───────────────────────────────────────────────────────────────
-    function LoginView({onLogin,onShowLanding,onRegister}){
-      const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[error,setError]=useState(""),[loading,setLoading]=useState(false);
-      const handleSubmit=()=>{
-        if(!email.trim()||!password.trim()){setError("Veuillez remplir tous les champs.");return;}
-        setLoading(true);setError("");
-        setTimeout(()=>{const ok=onLogin(email.trim().toLowerCase(),password);if(!ok)setError("Email ou mot de passe incorrect.");setLoading(false);},400);
-      };
-      return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-        <div style={{width:"100%",maxWidth:380}}>
-          <div style={{textAlign:"center",marginBottom:40}}>
-            <p style={{fontFamily:serif,fontSize:34,letterSpacing:-1,margin:"0 0 6px"}}>MyFlashcard</p>
-            <p style={{fontFamily:mono,fontSize:9,letterSpacing:3,textTransform:"uppercase",color:C.textLt,margin:0}}>Sciences du vivant</p>
-          </div>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"32px 28px",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
-            <p style={{fontFamily:serif,fontSize:22,margin:"0 0 24px"}}>Connexion</p>
-            <div style={{display:"flex",flexDirection:"column",gap:20}}>
-              <div>
-                <Lbl>Adresse email</Lbl>
-                <input style={iLine} type="email" placeholder="votre@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} autoFocus/>
-              </div>
-              <PasswordField label="Mot de passe" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
-            </div>
-            {error&&<p style={{fontSize:12,color:C.again,margin:"14px 0 0",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
-            <Btn fill full style={{marginTop:24,fontSize:14,padding:"12px"}} onClick={handleSubmit} disabled={loading}>{loading?"Connexion…":"Se connecter →"}</Btn>
-            <div style={{borderTop:`1px solid ${C.border}`,marginTop:24,paddingTop:20,textAlign:"center"}}>
-              <p style={{fontSize:13,color:C.textMed,margin:"0 0 12px"}}>Pas encore de compte ?</p>
-              <Btn full onClick={onRegister} style={{borderColor:C.util,color:C.util}}>Créer un compte gratuit →</Btn>
-            </div>
-          </div>
-          <button onClick={onShowLanding} style={{display:"block",margin:"20px auto 0",fontFamily:font,fontSize:13,background:"none",border:"none",color:C.textLt,cursor:"pointer",textDecoration:"underline"}}>Voir les offres et tarifs</button>
-        </div>
-      </div>;
-    }
-
-    // ─── Register ────────────────────────────────────────────────────────────
-    function RegisterView({onRegister, onBack, accounts}) {
-      const [step, setStep]       = useState(1);
-      const [form, setForm]       = useState({ email: "", password: "", confirm: "" });
-      const [code, setCode]       = useState("");
-      const [error, setError]     = useState("");
-      const [sending, setSending] = useState(false);
-      const [verifying, setVerifying] = useState(false);
-      const [resendCooldown, setResendCooldown] = useState(0);
-      const cooldownRef = useRef(null);
-      const pwdState = validatePassword(form.password);
-
-      const handleSendCode = async () => {
-        setError("");
-        if (!validateEmail(form.email)) { setError("Adresse email invalide."); return; }
-        if (!pwdState.ok) { setError("Le mot de passe ne respecte pas les critères."); return; }
-        if (form.password !== form.confirm) { setError("Les mots de passe ne correspondent pas."); return; }
-        if (accounts.find(a => a.username === form.email.trim().toLowerCase())) { setError("Cette adresse email est déjà utilisée."); return; }
-        setSending(true);
-        try {
-          const r = await fetch(`${EDGE_URL}/send-verification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` },
-            body: JSON.stringify({ email: form.email.trim().toLowerCase() }),
-          });
-          if (!r.ok) { const d = await r.json(); throw new Error(d.error || "Erreur envoi"); }
-          setStep(2); startCooldown();
-        } catch (e) { setError(`Impossible d'envoyer le code : ${e.message}`); }
-        finally { setSending(false); }
-      };
-
-      const startCooldown = () => {
-        setResendCooldown(60);
-        clearInterval(cooldownRef.current);
-        cooldownRef.current = setInterval(() => {
-          setResendCooldown(v => { if (v <= 1) { clearInterval(cooldownRef.current); return 0; } return v - 1; });
-        }, 1000);
-      };
-
-      const handleVerify = async () => {
-        if (code.trim().length !== 6) { setError("Le code doit contenir 6 chiffres."); return; }
-        setError(""); setVerifying(true);
-        try {
-          const valid = await supa.checkVerification(form.email.trim().toLowerCase(), code.trim());
-          if (!valid) { setError("Code invalide ou expiré. Vérifie ta boîte mail ou demande un nouveau code."); return; }
-          const newAcc = { username: form.email.trim().toLowerCase(), password: form.password, email: form.email.trim().toLowerCase(), planId: "prerentree", groups: PRERENTREE_IDS };
-          onRegister(newAcc);
-        } catch (e) { setError(`Erreur lors de la vérification : ${e.message}`); }
-        finally { setVerifying(false); }
-      };
-
-      useEffect(() => () => clearInterval(cooldownRef.current), []);
-
-      return (
-        <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-          <div style={{width:"100%",maxWidth:420}}>
-            <div style={{textAlign:"center",marginBottom:32}}>
-              <p style={{fontFamily:serif,fontSize:30,letterSpacing:-1,margin:"0 0 4px"}}>MyFlashcard</p>
-              <p style={{fontFamily:mono,fontSize:9,letterSpacing:3,textTransform:"uppercase",color:C.textLt,margin:0}}>Créer un compte</p>
-            </div>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:24}}>
-              {[1,2].map(s => (
-                <React.Fragment key={s}>
-                  <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:step>=s?C.accent:C.border,color:step>=s?"#fff":C.textLt,fontSize:12,fontWeight:600}}>{step>s?"✓":s}</div>
-                  {s<2&&<div style={{width:40,height:2,background:step>1?C.accent:C.border}}/>}
-                </React.Fragment>
-              ))}
-            </div>
-            <p style={{textAlign:"center",fontSize:12,color:C.textLt,margin:"0 0 20px"}}>{step===1?"Étape 1 — Informations":"Étape 2 — Confirmation email"}</p>
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"28px",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
-              {step===1&&<div>
-                <div style={{background:C.utilBg,border:`1px solid ${C.util}30`,borderRadius:8,padding:"10px 14px",marginBottom:22}}>
-                  <p style={{fontSize:12,color:C.util,margin:0,lineHeight:1.6}}>✓ Accès gratuit à l'offre <strong>Pré-rentrée</strong> — paiement possible depuis ton espace.</p>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:18}}>
-                  <div>
-                    <Lbl>Adresse email</Lbl>
-                    <input style={{...iLine,borderColor:form.email&&!validateEmail(form.email)?C.again:C.border}} type="email" placeholder="votre@email.com" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/>
-                    {form.email&&!validateEmail(form.email)&&<p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Format d'email invalide</p>}
-                  </div>
-                  <div>
-                    <PasswordField label="Mot de passe" value={form.password} onChange={e=>setForm(p=>({...p,password:e.target.value}))}/>
-                    <PasswordStrength password={form.password}/>
-                  </div>
-                  <div>
-                    <PasswordField label="Confirmer le mot de passe" value={form.confirm} onChange={e=>setForm(p=>({...p,confirm:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSendCode()}/>
-                    {form.confirm&&form.confirm!==form.password&&<p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Les mots de passe ne correspondent pas</p>}
-                  </div>
-                </div>
-                {error&&<p style={{fontSize:12,color:C.again,margin:"14px 0 0",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
-                <Btn fill full style={{marginTop:24,fontSize:14,padding:"12px"}} onClick={handleSendCode} disabled={sending}>{sending?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Envoi…</>:"Recevoir le code de vérification →"}</Btn>
-              </div>}
-              {step===2&&<div>
-                <div style={{textAlign:"center",marginBottom:24}}>
-                  <p style={{fontSize:40,margin:"0 0 12px"}}>📬</p>
-                  <p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Vérifie ta boîte mail</p>
-                  <p style={{fontSize:13,color:C.textMed,lineHeight:1.6}}>Code envoyé à<br/><strong style={{color:C.text}}>{form.email}</strong></p>
-                </div>
-                <div style={{marginBottom:20}}>
-                  <Lbl>Code de vérification</Lbl>
-                  <input style={{...iLine,fontSize:32,fontWeight:700,letterSpacing:14,textAlign:"center",padding:"12px 0",fontFamily:mono,borderBottom:`2px solid ${C.accent}`}} type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} onKeyDown={e=>e.key==="Enter"&&handleVerify()} autoFocus/>
-                </div>
-                {error&&<p style={{fontSize:12,color:C.again,margin:"0 0 14px",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
-                <Btn fill full style={{fontSize:14,padding:"12px",marginBottom:12}} onClick={handleVerify} disabled={verifying||code.length!==6}>{verifying?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Vérification…</>:"Créer mon compte →"}</Btn>
-                <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:8}}>
-                  <button onClick={()=>{setStep(1);setCode("");setError("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt,textDecoration:"underline"}}>← Modifier l'email</button>
-                  <button onClick={()=>{if(resendCooldown>0)return;handleSendCode();}} disabled={resendCooldown>0||sending} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:resendCooldown>0?"not-allowed":"pointer",color:resendCooldown>0?C.textLt:C.accent,textDecoration:"underline",opacity:resendCooldown>0?0.6:1}}>{resendCooldown>0?`Renvoyer (${resendCooldown}s)`:"Renvoyer un code"}</button>
-                </div>
-                <p style={{fontSize:11,color:C.textLt,textAlign:"center",marginTop:12}}>Le code expire dans 10 minutes. Vérifie tes spams.</p>
-              </div>}
-            </div>
-            <button onClick={onBack} style={{display:"block",margin:"20px auto 0",fontFamily:font,fontSize:13,background:"none",border:"none",color:C.textLt,cursor:"pointer",textDecoration:"underline"}}>Déjà un compte ? Se connecter</button>
-          </div>
-        </div>
-      );
-    }
-
-    // ─── Image Occlusion helper (moved up — used by CardEditor & AdminCards) ──
-    const isOcclusion = (card) => { try { return JSON.parse(card.front)?.type === "occlusion"; } catch { return false; } };
-
-    // ─── OcclusionCanvas ─────────────────────────────────────────────────────
-    function OcclusionCanvas({cardFront, showBack, showOthers}) {
-      const canvasRef = useRef(null);
-      useEffect(() => {
-        try {
-          const data = JSON.parse(cardFront);
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const ctx = canvas.getContext("2d");
-          const img = new Image();
-          img.onload = () => {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            const target = data.zones.find(z => z.id === data.targetZone);
-            if (showBack) {
-              if (target) {
-                ctx.strokeStyle = "#15803d"; ctx.lineWidth = 3;
-                ctx.strokeRect(target.x-1, target.y-1, target.w+2, target.h+2);
-                ctx.fillStyle = "#15803d18";
-                ctx.fillRect(target.x, target.y, target.w, target.h);
-              }
-            } else {
-              data.zones.forEach((z, i) => {
-                const isTarget = z.id === data.targetZone;
-                if (isTarget) {
-                  ctx.fillStyle = "#4e4a46"; ctx.fillRect(z.x, z.y, z.w, z.h);
-                  ctx.strokeStyle = "#1a1917"; ctx.lineWidth = 2; ctx.strokeRect(z.x, z.y, z.w, z.h);
-                  ctx.fillStyle = "white";
-                  const fs = Math.min(z.h * 0.5, 30);
-                  ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                  ctx.fillText("?", z.x + z.w/2, z.y + z.h/2);
-                } else if (!showOthers) {
-                  ctx.fillStyle = z.color + "cc"; ctx.fillRect(z.x, z.y, z.w, z.h);
-                  ctx.strokeStyle = z.color; ctx.lineWidth = 1.5; ctx.strokeRect(z.x, z.y, z.w, z.h);
-                  ctx.fillStyle = "white";
-                  ctx.font = `bold ${Math.min(z.h*0.45, 18)}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                  ctx.fillText(String(i+1), z.x + z.w/2, z.y + z.h/2);
-                }
-              });
-            }
-          };
-          img.src = data.image;
-        } catch(e) { console.error("OcclusionCanvas error:", e); }
-      }, [cardFront, showBack, showOthers]);
-      return <canvas ref={canvasRef} style={{maxWidth:"100%",maxHeight:300,borderRadius:8,display:"block",margin:"0 auto",cursor:"default"}}/>;
-    }
-
-    // ─── Card Editor (text + image occlusion intégrée) ───────────────────────
-    function CardEditor({card, onSave, onCancel}) {
-      const isNew = !card?.id;
-      const initType = !isNew && isOcclusion(card) ? "occlusion" : "text";
-
-      // ── Type selector ──
-      const [cardType, setCardType] = useState(initType);
-
-      // ── Text card state ──
-      const [form, setForm] = useState({
-        front:    card?.front    || "",
-        back:     card?.back     || "",
-        groupId:  card?.groupId  || GROUPS[0].id,
-        num:      card?.num      || 1,
-        packetId: card?.packetId || "prioritaire",
+const supa = {
+  getCards: async () => {
+    try {
+      const r = await fetch(`${SUPA_URL}/rest/v1/cards?select=*`, { headers: H });
+      const d = await r.json();
+      return d.map(c => ({ id:c.id, front:c.front, back:c.back, groupId:c.group_id, num:c.num, chapterId:c.chapter_id||1, packetId:c.packet_id }));
+    } catch { return null; }
+  },
+  upsertCard: async (card) => {
+    try {
+      await fetch(`${SUPA_URL}/rest/v1/cards`, {
+        method:"POST", headers:{...H,"Prefer":"resolution=merge-duplicates"},
+        body: JSON.stringify({ id:card.id, front:card.front, back:card.back, group_id:card.groupId, num:card.num, chapter_id:card.chapterId||1, packet_id:card.packetId }),
       });
-      const [saved,   setSaved]   = useState(false);
-      const [errors,  setErrors]  = useState({});
+    } catch {}
+  },
+  deleteCard: async (id) => { try { await fetch(`${SUPA_URL}/rest/v1/cards?id=eq.${id}`,{method:"DELETE",headers:H}); } catch {} },
+  getAccounts: async () => { try { const r=await fetch(`${SUPA_URL}/rest/v1/accounts?select=*`,{headers:H}); return await r.json(); } catch { return []; } },
+  upsertAccount: async (acc) => {
+    try {
+      await fetch(`${SUPA_URL}/rest/v1/accounts`, {
+        method:"POST", headers:{...H,"Prefer":"resolution=merge-duplicates"},
+        body: JSON.stringify({ username:acc.username, password:acc.password, email:acc.email||"", plan_id:acc.planId, groups:acc.groups }),
+      });
+    } catch {}
+  },
+  deleteAccount: async (username) => { try { await fetch(`${SUPA_URL}/rest/v1/accounts?username=eq.${username}`,{method:"DELETE",headers:H}); } catch {} },
+  checkVerification: async (email, code) => {
+    try {
+      const now = new Date().toISOString();
+      const r = await fetch(`${SUPA_URL}/rest/v1/verifications?email=eq.${encodeURIComponent(email)}&code=eq.${code}&expires_at=gt.${encodeURIComponent(now)}&select=email`,{headers:H});
+      const d = await r.json(); return Array.isArray(d) && d.length > 0;
+    } catch { return false; }
+  },
+};
 
-      // ── Occlusion state ──
-      const COLORS = ["#e74c3c","#3498db","#2ecc71","#f39c12","#9b59b6","#1abc9c","#e67e22","#e91e63","#00bcd4","#8bc34a"];
-      const [image,       setImage]       = useState(null);
-      const [imgW,        setImgW]        = useState(0);
-      const [imgH,        setImgH]        = useState(0);
-      const [zones,       setZones]       = useState([]);
-      const [drawing,     setDrawing]     = useState(false);
-      const [startPos,    setStartPos]    = useState(null);
-      const [currentRect, setCurrentRect] = useState(null);
+const storage = {
+  get: k => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch { return null; } },
+  set: (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} },
+};
 
-      // ── Shared classification helpers ──
-      const selGroup   = GROUPS.find(g => g.id === form.groupId);
-      const availNums  = selGroup?.nums || [1];
-      const selPacket  = PACKETS.find(p => p.id === form.packetId);
+const validateEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+const validatePassword = p => { const hasLen=p.length>=8, hasSpecial=/[!@#$%^&*()\-_=+\[\]{};:'",.<>?/\\|`~]/.test(p); return {ok:hasLen&&hasSpecial,hasLen,hasSpecial}; };
 
-      const handleGroupChange = v => {
-        const g = GROUPS.find(g => g.id === v);
-        const newNum = g?.nums.includes(form.num) ? form.num : g?.nums[0] || 1;
-        setForm(p => ({...p, groupId: v, num: newNum}));
-      };
+// ─── Stripe ──────────────────────────────────────────────────────────────────
+const STRIPE_LINKS = { "sem1":"https://buy.stripe.com/REMPLACE_MOI","sem2":"https://buy.stripe.com/REMPLACE_MOI","both":"https://buy.stripe.com/REMPLACE_MOI","g-cell-bio":"https://buy.stripe.com/REMPLACE_MOI","g-histo":"https://buy.stripe.com/REMPLACE_MOI","g-biochem":"https://buy.stripe.com/REMPLACE_MOI","g-biomol":"https://buy.stripe.com/REMPLACE_MOI","g-biophys":"https://buy.stripe.com/REMPLACE_MOI","g-biostat":"https://buy.stripe.com/REMPLACE_MOI","g-anatomie":"https://buy.stripe.com/REMPLACE_MOI","g-physio":"https://buy.stripe.com/REMPLACE_MOI","g-medic":"https://buy.stripe.com/REMPLACE_MOI","g-ssh":"https://buy.stripe.com/REMPLACE_MOI" };
+function redirectToStripe(planId, username) {
+  const base = STRIPE_LINKS[planId];
+  if (!base||base.includes("REMPLACE_MOI")) { alert("Le paiement en ligne n'est pas encore configuré pour ce plan."); return false; }
+  window.location.href = `${base}?client_reference_id=${encodeURIComponent(`${username}|${planId}`)}`;
+  return true;
+}
 
-      // ── Text save ──
-      const validate = () => {
-        const e = {};
-        if (!form.front.trim()) e.front = true;
-        if (!form.back.trim())  e.back  = true;
-        setErrors(e);
-        return !Object.keys(e).length;
-      };
-      const handleSaveText = () => {
-        if (!validate()) return;
-        onSave({...form, id: card?.id || `card-${Date.now()}`});
-        setSaved(true);
-      };
+// ─── Constants ───────────────────────────────────────────────────────────────
+const GROUPS = [
+  // Pré-rentrée
+  { id:"pr-cell-bio", label:"Biologie cellulaire",                   sem:0, nums:[1] },
+  { id:"pr-histo",    label:"Histologie & Biologie du développement", sem:0, nums:[1] },
+  { id:"pr-biochem",  label:"Biochimie",                              sem:0, nums:[1] },
+  { id:"pr-biophys",  label:"Biophysique",                            sem:0, nums:[1] },
+  { id:"pr-biostat",  label:"Biostatistique",                         sem:0, nums:[1] },
+  // Semestre 1
+  { id:"cell-bio", label:"Biologie cellulaire",                   sem:1, nums:[1,2,3,4] },
+  { id:"histo",    label:"Histologie & Biologie du développement", sem:1, nums:[1,2,3]   },
+  { id:"biochem",  label:"Biochimie",                              sem:1, nums:[1,2,3]   },
+  { id:"biomol",   label:"Biologie moléculaire",                   sem:1, nums:[1,2]     },
+  { id:"biophys",  label:"Biophysique",                            sem:1, nums:[1,2,3]   },
+  { id:"biostat",  label:"Biostatistique",                         sem:1, nums:[1]       },
+  // Semestre 2
+  { id:"anatomie", label:"Anatomie",                                          sem:2, nums:[1,2,3]   },
+  { id:"physio",   label:"Physiologie",                                       sem:2, nums:[1,2,3,4] },
+  { id:"medic",    label:"Introduction à la connaissance du médicament",      sem:2, nums:[1,2,3]   },
+  { id:"ssh",      label:"Sciences sociales et humaines",                     sem:2, nums:[1,2,3]   },
+];
 
-      // ── Occlusion draw handlers ──
-      const pct = (v, total) => total ? `${(v/total*100).toFixed(4)}%` : "0%";
-      const getSvgPos = (e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        return { x: ((e.clientX - rect.left) / rect.width) * imgW, y: ((e.clientY - rect.top) / rect.height) * imgH };
-      };
-      const onMouseDown = (e) => {
-        e.preventDefault(); const pos = getSvgPos(e);
-        setDrawing(true); setStartPos(pos); setCurrentRect({x:pos.x, y:pos.y, w:0, h:0});
-      };
-      const onMouseMove = (e) => {
-        if (!drawing || !startPos) return; e.preventDefault();
-        const pos = getSvgPos(e);
-        setCurrentRect({x:Math.min(pos.x,startPos.x), y:Math.min(pos.y,startPos.y), w:Math.abs(pos.x-startPos.x), h:Math.abs(pos.y-startPos.y)});
-      };
-      const onMouseUp = (e) => {
-        if (!drawing) return; e.preventDefault(); setDrawing(false);
-        if (currentRect && currentRect.w > 8 && currentRect.h > 8) {
-          setZones(z => [...z, {id:`z${Date.now()}`, ...currentRect, color:COLORS[z.length%COLORS.length]}]);
-        }
-        setCurrentRect(null); setStartPos(null);
-      };
-      const handleFile = (e) => {
-        const file = e.target.files[0]; if (!file) return;
-        const reader = new FileReader();
-        reader.onload = ev => { setImage(ev.target.result); setZones([]); setSaved(false); };
-        reader.readAsDataURL(file);
-      };
-      const handleSaveOcclusion = () => {
-        if (!image || zones.length === 0) return;
-        const cards = zones.map((zone, i) => ({
-          id: `occ-${Date.now()}-${i}`,
-          front: JSON.stringify({type:"occlusion", image, imgW, imgH, zones, targetZone:zone.id}),
-          back: "__occlusion__",
-          groupId:  form.groupId,
-          num:      form.num,
-          packetId: form.packetId,
-        }));
-        onSave(cards);
-        setSaved(true);
-      };
+// ─── Chapitres ────────────────────────────────────────────────────────────────
+const CHAPTERS = {
+  "cell-bio": {
+    1: ["Définition de la cellule","Membranes","RE, Golgi, Modif post-trad, Vésicules","Noyau, mitose"],
+    2: ["Cytosquelette : actine","Cytosquelette : microtubules","Cytosquelette : filaments intermédiaires","Migration cellulaire","Molécules d'adhérence","Migration et Cancer"],
+    3: ["Méthodes d'études","Communication Cellulaire","Canaux ioniques","RTK","Autres récepteurs","Cycle Cellulaire"],
+    4: ["RCPG","Voies des RCPG et pathologies associées","Récepteurs nucléaires","Adaptation","Apoptose"],
+  },
+  "histo": {
+    1: ["Reproduction et méiose","Gamétogenèse masculine","Gamétogenèse féminine","Fécondation","Développement embryonnaire","Cellules souches embryonnaires"],
+    2: ["Epithélium","Tissus conjonctifs","Tissus adipeux","Tissus cartilagineux"],
+    3: ["Tissus musculaires","Tissus nerveux","Eléments figurés du sang"],
+  },
+  "biochem": {
+    1: ["Thermodynamique","Enzymes","Métabolisme"],
+    2: ["Acides aminés","Protéines : Définition et Structure","Modifications Post-trad","Protéines : Propriétés et Analyse"],
+    3: ["Acides gras","Lipides simples","Lipides complexes","Dérivés lipidiques","Glucides Oses","Glucides Osides"],
+  },
+  "biomol": {
+    1: ["Information génétique","Réplication","Transcription","Traduction","Réplication II"],
+    2: ["Variabilité des génomes","Outils et méthodes d'étude des gènes"],
+  },
+  "biophys": {
+    1: ["Eau et Solutions","Notions de thermodynamique","Potentiel Chimique, Fick, Osmose","Diffusion ionique, Donnan","Potentiel de membrane","Phénomènes électroniques membranaires","Potentiel d'action"],
+    2: ["Bases biophysiques, utilisation rayonnements","Interactions rayonnements/matière","Détecter les rayonnements"],
+    3: ["Dosimètre","Radiobiologie","Radioprotection"],
+  },
+  "biostat": {
+    1: ["Décrire","Estimer","Comparer et tester","Evaluer les performances"],
+  },
+};
 
-      // ── Classification panel (shared by both types) ──
-      const ClassificationPanel = () => (
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"20px",height:"fit-content"}}>
-          <p style={{fontFamily:serif,fontSize:16,margin:"0 0 20px"}}>Classification</p>
-          <div style={{display:"flex",flexDirection:"column",gap:20}}>
-            {/* Group selector with semester context labels */}
-            <ClassSelector
-              label="Matière"
-              value={form.groupId}
-              onChange={handleGroupChange}
-              options={GROUPS.map(g => ({value: g.id, label: groupLabel(g)}))}
-            />
-            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18}}>
-              <ClassSelector
-                label="Cours"
-                value={form.num}
-                onChange={v=>setForm(p=>({...p,num:v}))}
-                options={availNums.map(n=>({value:n,label:`Cours ${n}`}))}
-                columns={Math.min(availNums.length,4)}
-              />
-            </div>
-            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18}}>
-              <ClassSelector
-                label="Paquet"
-                value={form.packetId}
-                onChange={v=>setForm(p=>({...p,packetId:v}))}
-                options={PACKETS.map(pk=>({value:pk.id,label:pk.label,color:pC(pk.id),bg:pB(pk.id)}))}
-                columns={1}
-              />
-            </div>
-          </div>
+const getChapters = (groupId, num) => CHAPTERS[groupId]?.[num] || [];
+
+const PACKETS = [
+  { id:"prioritaire", label:"Prioritaire" },
+  { id:"important",   label:"Important"   },
+  { id:"utile",       label:"Utile"        },
+];
+
+const PRERENTREE_IDS = GROUPS.filter(g=>g.sem===0).map(g=>g.id);
+const SEM1 = GROUPS.filter(g=>g.sem===1).map(g=>g.id);
+const SEM2 = GROUPS.filter(g=>g.sem===2).map(g=>g.id);
+const ALL  = [...SEM1,...SEM2];
+
+const PLANS = [
+  { id:"sem1",       label:"Semestre 1",      price:"99 €",   groups:SEM1, desc:"Toutes les matières du semestre 1" },
+  { id:"sem2",       label:"Semestre 2",      price:"149 €",  groups:SEM2, desc:"Toutes les matières du semestre 2" },
+  { id:"both",       label:"Année complète",  price:"200 €",  groups:ALL,  desc:"Tous les semestres · Accès illimité" },
+  { id:"prerentree", label:"Pré-rentrée",     price:"Gratuit",groups:PRERENTREE_IDS, desc:"5 matières · Cours 1 offert" },
+  { id:"g-cell-bio", label:"Biologie cellulaire",    price:"49 €", groups:["cell-bio"], desc:"Cours 1, 2, 3 et 4" },
+  { id:"g-histo",    label:"Histologie & Bio. dév.", price:"39 €", groups:["histo"],    desc:"Cours 1, 2 et 3" },
+  { id:"g-biochem",  label:"Biochimie",              price:"39 €", groups:["biochem"],  desc:"Cours 1, 2 et 3" },
+  { id:"g-biomol",   label:"Biologie moléculaire",   price:"29 €", groups:["biomol"],   desc:"Cours 1 et 2" },
+  { id:"g-biophys",  label:"Biophysique",            price:"19 €", groups:["biophys"],  desc:"Cours 1, 2 et 3" },
+  { id:"g-biostat",  label:"Biostatistique",         price:"9 €",  groups:["biostat"],  desc:"Cours 1" },
+  { id:"g-anatomie", label:"Anatomie",               price:"49 €", groups:["anatomie"], desc:"Cours 1, 2 et 3" },
+  { id:"g-physio",   label:"Physiologie",            price:"49 €", groups:["physio"],   desc:"Cours 1, 2, 3 et 4" },
+  { id:"g-medic",    label:"Intro. médicament",      price:"39 €", groups:["medic"],    desc:"Cours 1, 2 et 3" },
+  { id:"g-ssh",      label:"Sciences sociales",      price:"29 €", groups:["ssh"],      desc:"Cours 1, 2 et 3" },
+];
+
+const ADMIN_USERNAME = "admin";
+const ADMIN_PASSWORD = "medecine2024";
+const DEFAULT_SETTINGS = { againMin:1, hardMin:5, goodMin:10, easyDays:4, newCardsPerDay:20, maxReviewsPerDay:100, dailyGroups:[], dailyPackets:[] };
+const INITIAL_CARDS = [
+  { id:"cb1p1", front:"Qu'est-ce que la membrane plasmique ?",   back:"Bicouche lipidique composée de phospholipides, cholestérol et protéines membranaires. Rôle de barrière sélective et d'interface de signalisation cellulaire.", groupId:"cell-bio", num:1, chapterId:2, packetId:"prioritaire" },
+  { id:"cb1p2", front:"Décrivez les phases du cycle cellulaire", back:"G1 (croissance) → S (réplication ADN) → G2 (vérification) → M (mitose). Points de contrôle régulés par complexes cycline-CDK et protéine Rb.", groupId:"cell-bio", num:1, chapterId:4, packetId:"prioritaire" },
+  { id:"cb1i1", front:"Qu'est-ce que l'apoptose ?",              back:"Mort cellulaire programmée. Voie intrinsèque (mitochondriale → caspase-9) et extrinsèque (récepteurs de mort → caspase-8). Sans inflammation.", groupId:"cell-bio", num:1, chapterId:4, packetId:"important" },
+];
+
+const groupLabel = (g) => g.label + (g.sem===0?" — Pré-rentrée":g.sem===1?" — Sem. 1":" — Sem. 2");
+
+// ─── SRS ─────────────────────────────────────────────────────────────────────
+function computeNext(prev,rating,s=DEFAULT_SETTINGS){
+  const {againMin=1,hardMin=5,goodMin=10,easyDays=4}=s;
+  const {state="new",step=0,interval=1,ease=2.5,reps=0,lapses=0,lapseInt=1}=prev||{};
+  const mf=m=>new Date(Date.now()+m*60000).toISOString();
+  const df=d=>new Date(Date.now()+d*86400000).toISOString();
+  const base={ease,reps,lapses,lapseInt};
+  if(state==="new"||state==="learning"){
+    if(rating===1)return{...base,state:"learning",step:0,interval:againMin,next:mf(againMin)};
+    if(rating===2)return{...base,state:"learning",step:1,interval:hardMin,next:mf(hardMin)};
+    if(rating===3){if(step>=2)return{...base,state:"review",step:0,interval:1,reps:1,lapseInt:0,next:df(1)};return{...base,state:"learning",step:2,interval:goodMin,next:mf(goodMin)};}
+    return{...base,state:"review",step:0,interval:easyDays,reps:1,lapseInt:0,next:df(easyDays)};
+  }
+  if(state==="review"){
+    if(rating===1){const li=Math.max(1,Math.round(interval*0.2));return{state:"relearning",step:0,interval,ease:Math.max(1.3,ease-0.2),reps,lapses:lapses+1,lapseInt:li,next:mf(againMin)};}
+    let ni,ne=ease;
+    if(rating===2){ni=Math.max(interval+1,Math.round(interval*1.2));ne=Math.max(1.3,ease-0.15);}
+    else if(rating===3){ni=Math.max(interval+1,Math.round(interval*ease));}
+    else{ni=Math.max(interval+1,Math.round(interval*ease*1.3));ne=Math.min(3.5,ease+0.15);}
+    return{state:"review",step:0,interval:ni,ease:ne,reps:reps+1,lapses,lapseInt:0,next:df(ni)};
+  }
+  if(rating===1)return{...prev,next:mf(againMin)};
+  const ni=Math.max(1,lapseInt);return{state:"review",step:0,interval:ni,ease,reps:reps+1,lapses,lapseInt:0,next:df(ni)};
+}
+function getIntervalLabel(prev,rating,s=DEFAULT_SETTINGS){
+  const r=computeNext(prev,rating,s);
+  if(r.state==="learning"||r.state==="relearning"){const m=Math.max(1,Math.round((new Date(r.next)-Date.now())/60000));return m<60?`${m} min`:`${Math.round(m/60)} h`;}
+  const d=r.interval;if(d===1)return"1 jour";if(d<7)return`${d} j`;if(d<30)return`${Math.round(d/7)} sem.`;if(d<365)return`${Math.round(d/30)} mois`;return`${(d/365).toFixed(1)} an${d>=730?"s":""}`;
+}
+function isDue(p){return !p?.next||new Date(p.next)<=new Date();}
+function isNew(p){return !p||p.state==="new";}
+function stateLabel(p){if(!p||p.state==="new")return"Nouveau";if(p.state==="learning")return"Apprentissage";if(p.state==="relearning")return"Réapprentissage";return`Révision · J+${p.interval}`;}
+function buildQueue(cardList,prog,settings){
+  const {dailyGroups,dailyPackets,maxReviewsPerDay}=settings;
+  return cardList.filter(c=>{const p=prog[c.id];if(!isDue(p))return false;if(isNew(p)){if(dailyGroups.length>0&&!dailyGroups.includes(c.groupId))return false;if(dailyPackets.length>0&&!dailyPackets.includes(c.packetId))return false;}return true;}).slice(0,maxReviewsPerDay);
+}
+// Stats by chapter + packet
+function chapterStats(cards,prog,gid,num,chId,pkId){
+  const l=cards.filter(c=>c.groupId===gid&&c.num===num&&c.chapterId===chId&&c.packetId===pkId);
+  return{total:l.length,due:l.filter(c=>isDue(prog[c.id])).length};
+}
+// Total due for a whole course (all chapters, all packets)
+function courseDueCount(cards,prog,gid,num){
+  const chs=getChapters(gid,num);
+  if(!chs.length)return 0;
+  return chs.reduce((acc,_,i)=>acc+PACKETS.reduce((a2,pk)=>a2+chapterStats(cards,prog,gid,num,i+1,pk.id).due,0),0);
+}
+function globalDue(cards,prog,ids,settings,pkId=null){
+  const el=cards.filter(c=>ids.includes(c.groupId)&&(!pkId||c.packetId===pkId));
+  return buildQueue(el,prog,settings).length;
+}
+
+// ─── Design ──────────────────────────────────────────────────────────────────
+const C={bg:"#f5f3ee",surface:"#ffffff",border:"#d0ccc4",text:"#1a1917",textMed:"#4e4a46",textLt:"#7a7672",accent:"#2c4a7c",accentBg:"#eef3fb",prio:"#9b2335",prioBg:"#fef2f4",imp:"#8b5e00",impBg:"#fef8e8",util:"#1e5a3a",utilBg:"#edf7f2",again:"#b91c1c",againBg:"#fff0f0",hard:"#b45309",hardBg:"#fff8ed",good:"#15803d",goodBg:"#edfdf3",easy:"#1d4ed8",easyBg:"#eff6ff"};
+const pC=id=>id==="prioritaire"?C.prio:id==="important"?C.imp:C.util;
+const pB=id=>id==="prioritaire"?C.prioBg:id==="important"?C.impBg:C.utilBg;
+const font="system-ui,-apple-system,'Segoe UI',sans-serif";
+const serif="Georgia,'Times New Roman',serif";
+const mono="'Courier New',Courier,monospace";
+const noSel={userSelect:"none",WebkitUserSelect:"none",MozUserSelect:"none"};
+const iLine={fontFamily:font,fontSize:14,color:C.text,background:"transparent",width:"100%",outline:"none",boxSizing:"border-box",border:"none",borderBottom:`1.5px solid ${C.border}`,padding:"8px 0"};
+const iBox={fontFamily:font,fontSize:14,color:C.text,background:"transparent",width:"100%",outline:"none",boxSizing:"border-box",border:`1.5px solid ${C.border}`,borderRadius:6,padding:"10px 12px",resize:"vertical"};
+
+// ─── Base components ──────────────────────────────────────────────────────────
+function Tag({color,bg,children,small}){return <span style={{display:"inline-block",fontFamily:mono,fontSize:small?8:9,letterSpacing:2,textTransform:"uppercase",padding:small?"2px 6px":"3px 8px",borderRadius:3,background:bg||C.accentBg,color:color||C.accent,whiteSpace:"nowrap"}}>{children}</span>;}
+function Btn({fill,danger,small,full,disabled,children,style,...rest}){return <button {...rest} disabled={disabled} style={{fontFamily:font,fontSize:small?12:13,fontWeight:500,padding:small?"6px 12px":"9px 18px",cursor:disabled?"not-allowed":"pointer",border:`1.5px solid ${fill?C.accent:danger?C.again:C.border}`,borderRadius:6,background:fill?C.accent:"transparent",color:fill?"#fff":danger?C.again:C.text,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,opacity:disabled?0.4:1,width:full?"100%":undefined,...style}}>{children}</button>;}
+function Modal({children,onClose,width=440}){return <div style={{position:"fixed",inset:0,background:"rgba(26,25,23,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(2px)"}} onClick={e=>e.target===e.currentTarget&&onClose()}><div style={{background:C.surface,borderRadius:12,padding:"32px 28px",width,maxWidth:"94vw",maxHeight:"92vh",overflowY:"auto",position:"relative",boxShadow:"0 20px 60px rgba(0,0,0,0.18)"}}><button onClick={onClose} style={{position:"absolute",top:14,right:16,background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.textLt}}>×</button>{children}</div></div>;}
+function Lbl({children,color}){return <p style={{fontFamily:mono,fontSize:9,letterSpacing:2.5,textTransform:"uppercase",color:color||C.textLt,margin:"0 0 6px"}}>{children}</p>;}
+function Nav({left,center,right}){return <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}><div>{left}</div><div style={{fontFamily:mono,fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.textLt}}>{center}</div><div style={{display:"flex",gap:8,alignItems:"center"}}>{right}</div></div>;}
+
+function PasswordField({label,value,onChange,placeholder,onKeyDown,hint}){
+  const [show,setShow]=useState(false);
+  return <div><Lbl>{label}</Lbl><div style={{position:"relative"}}><input style={{...iLine,paddingRight:36}} type={show?"text":"password"} placeholder={placeholder||"••••••••"} value={value} onChange={onChange} onKeyDown={onKeyDown}/><button type="button" onClick={()=>setShow(s=>!s)} style={{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16,padding:"2px 4px",lineHeight:1}}>{show?"🙈":"👁"}</button></div>{hint&&<p style={{fontSize:11,color:C.textLt,margin:"5px 0 0",lineHeight:1.5}}>{hint}</p>}</div>;
+}
+function PasswordStrength({password}){
+  if(!password)return null;
+  const {hasLen,hasSpecial}=validatePassword(password);
+  return <div style={{display:"flex",gap:14,marginTop:6,flexWrap:"wrap"}}><span style={{fontSize:11,display:"inline-flex",alignItems:"center",gap:4,color:hasLen?C.good:C.textLt}}>{hasLen?"✓":"○"} 8 caractères min.</span><span style={{fontSize:11,display:"inline-flex",alignItems:"center",gap:4,color:hasSpecial?C.good:C.textLt}}>{hasSpecial?"✓":"○"} 1 caractère spécial (!@#…)</span></div>;
+}
+function PaymentBanner({status,onClose}){
+  if(!status)return null;
+  const ok=status==="success";
+  return <div style={{position:"fixed",top:0,left:0,right:0,zIndex:200,background:ok?C.goodBg:C.againBg,borderBottom:`2px solid ${ok?C.good:C.again}`,padding:"16px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",boxShadow:"0 2px 16px rgba(0,0,0,0.1)"}}><p style={{fontSize:14,color:ok?C.good:C.again,margin:0,fontWeight:600}}>{ok?"✓ Paiement confirmé ! Ton abonnement est en cours d'activation.":"✕ Paiement annulé — tu peux réessayer depuis ton espace."}</p><button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:ok?C.good:C.again,fontSize:20,lineHeight:1,marginLeft:16}}>×</button></div>;
+}
+function MultiToggle({label,options,value,onChange,colorFn}){
+  const isAll=value.length===0,toggle=v=>onChange(value.includes(v)?value.filter(x=>x!==v):[...value,v]);
+  const TBtn=({active,onClick,label:lbl,color,bg})=><button onClick={onClick} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"7px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${active?(color||C.accent):C.border}`,background:active?(bg||C.accentBg):"transparent",color:active?(color||C.accent):C.textMed,display:"flex",alignItems:"center",gap:5}}>{active&&<span style={{fontSize:10}}>✓</span>}{lbl}</button>;
+  return <div><Lbl>{label}</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:8}}><TBtn active={isAll} onClick={()=>onChange([])} label="Tout" color={C.accent} bg={C.accentBg}/>{options.map(o=>{const col=colorFn?colorFn(o.value):C.accent,bg2=col===C.prio?C.prioBg:col===C.imp?C.impBg:col===C.util?C.utilBg:C.accentBg;return<TBtn key={o.value} active={value.includes(o.value)} onClick={()=>toggle(o.value)} label={o.label} color={col} bg={bg2}/>;})}</div><p style={{fontSize:11,color:C.textLt,margin:"8px 0 0"}}>{isAll?"Toutes les options incluses":`${value.length} sélectionnée${value.length>1?"s":""}`}</p></div>;
+}
+function ClassSelector({label,options,value,onChange,columns="auto"}){
+  return <div><Lbl>{label}</Lbl><div style={{display:"grid",gridTemplateColumns:columns==="auto"?"repeat(auto-fill,minmax(160px,1fr))":`repeat(${columns},1fr)`,gap:8,marginTop:8}}>{options.map(opt=>{const active=value===opt.value,col=opt.color||C.accent,bg=opt.bg||C.accentBg;return<button key={String(opt.value)} onClick={()=>onChange(opt.value)} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"10px 12px",cursor:"pointer",borderRadius:8,border:`2px solid ${active?col:C.border}`,background:active?bg:C.surface,color:active?col:C.textMed,textAlign:"left",lineHeight:1.4}} onMouseEnter={e=>{if(!active)e.currentTarget.style.borderColor=col;}} onMouseLeave={e=>{if(!active)e.currentTarget.style.borderColor=C.border;}}>{active&&<span style={{marginRight:6}}>✓</span>}{opt.label}</button>;})}</div></div>;
+}
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+function LoginView({onLogin,onShowLanding,onRegister}){
+  const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[error,setError]=useState(""),[loading,setLoading]=useState(false);
+  const handleSubmit=()=>{if(!email.trim()||!password.trim()){setError("Veuillez remplir tous les champs.");return;}setLoading(true);setError("");setTimeout(()=>{const ok=onLogin(email.trim().toLowerCase(),password);if(!ok)setError("Email ou mot de passe incorrect.");setLoading(false);},400);};
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{width:"100%",maxWidth:380}}>
+      <div style={{textAlign:"center",marginBottom:40}}><p style={{fontFamily:serif,fontSize:34,letterSpacing:-1,margin:"0 0 6px"}}>MyFlashcard</p><p style={{fontFamily:mono,fontSize:9,letterSpacing:3,textTransform:"uppercase",color:C.textLt,margin:0}}>Sciences du vivant</p></div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"32px 28px",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+        <p style={{fontFamily:serif,fontSize:22,margin:"0 0 24px"}}>Connexion</p>
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          <div><Lbl>Adresse email</Lbl><input style={iLine} type="email" placeholder="votre@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} autoFocus/></div>
+          <PasswordField label="Mot de passe" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
         </div>
-      );
+        {error&&<p style={{fontSize:12,color:C.again,margin:"14px 0 0",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
+        <Btn fill full style={{marginTop:24,fontSize:14,padding:"12px"}} onClick={handleSubmit} disabled={loading}>{loading?"Connexion…":"Se connecter →"}</Btn>
+        <div style={{borderTop:`1px solid ${C.border}`,marginTop:24,paddingTop:20,textAlign:"center"}}><p style={{fontSize:13,color:C.textMed,margin:"0 0 12px"}}>Pas encore de compte ?</p><Btn full onClick={onRegister} style={{borderColor:C.util,color:C.util}}>Créer un compte gratuit →</Btn></div>
+      </div>
+      <button onClick={onShowLanding} style={{display:"block",margin:"20px auto 0",fontFamily:font,fontSize:13,background:"none",border:"none",color:C.textLt,cursor:"pointer",textDecoration:"underline"}}>Voir les offres et tarifs</button>
+    </div>
+  </div>;
+}
 
-      return (
-        <div style={{fontFamily:font,background:C.bg,minHeight:"100vh"}}>
-          <Nav
-            left={<button onClick={onCancel} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Retour</button>}
-            center={isNew ? "Nouvelle flashcard" : "Modifier"}
-            right={
-              cardType === "text"
-                ? <Btn fill onClick={handleSaveText}>{saved?"✓ Enregistré":isNew?"Créer":"Mettre à jour"}</Btn>
-                : zones.length > 0
-                  ? <Btn fill onClick={handleSaveOcclusion}>{saved?`✓ ${zones.length} carte${zones.length>1?"s":""} créée${zones.length>1?"s":""} !`:`Générer ${zones.length} carte${zones.length>1?"s":""} →`}</Btn>
-                  : null
-            }
-          />
-
-          <div style={{maxWidth:960,margin:"0 auto",padding:"28px 24px"}}>
-
-            {/* ── Type selector (only for new cards) ── */}
-            {isNew && (
-              <div style={{marginBottom:24}}>
-                <Lbl>Type de carte</Lbl>
-                <div style={{display:"flex",gap:8,marginTop:8}}>
-                  {[
-                    ["text",      "📝 Texte",          "Recto / Verso classique"],
-                    ["occlusion", "🖼 Image Occlusion", "Masquer des zones sur une image"],
-                  ].map(([t, label, desc]) => (
-                    <button key={t} onClick={() => setCardType(t)} style={{
-                      fontFamily:font, fontSize:13, fontWeight:cardType===t?600:400,
-                      padding:"12px 20px", cursor:"pointer", borderRadius:8,
-                      border:`2px solid ${cardType===t?C.accent:C.border}`,
-                      background:cardType===t?C.accentBg:C.surface,
-                      color:cardType===t?C.accent:C.textMed,
-                      display:"flex", flexDirection:"column", alignItems:"flex-start", gap:3,
-                    }}>
-                      <span>{cardType===t && "✓ "}{label}</span>
-                      <span style={{fontSize:11,fontWeight:400,color:cardType===t?C.accent:C.textLt}}>{desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ── TEXT card layout ── */}
-            {cardType === "text" && (
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
-                <div style={{display:"flex",flexDirection:"column",gap:16}}>
-                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"20px"}}>
-                    <p style={{fontFamily:serif,fontSize:16,margin:"0 0 16px"}}>Contenu</p>
-                    <div style={{marginBottom:14}}>
-                      <Lbl color={errors.front?C.again:undefined}>Recto{errors.front?" (requis)":""}</Lbl>
-                      <textarea style={{...iBox,minHeight:90,marginTop:6,display:"block",borderColor:errors.front?C.again:C.border}} value={form.front} onChange={e=>{setForm(p=>({...p,front:e.target.value}));setErrors(er=>({...er,front:false}));}} placeholder="La question..." rows={3}/>
-                    </div>
-                    <div>
-                      <Lbl color={errors.back?C.again:undefined}>Verso{errors.back?" (requis)":""}</Lbl>
-                      <textarea style={{...iBox,minHeight:110,marginTop:6,display:"block",borderColor:errors.back?C.again:C.border}} value={form.back} onChange={e=>{setForm(p=>({...p,back:e.target.value}));setErrors(er=>({...er,back:false}));}} placeholder="La réponse..." rows={4}/>
-                    </div>
-                  </div>
-                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px"}}>
-                    <Lbl>Aperçu</Lbl>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6,margin:"8px 0 0"}}>
-                      <Tag color={pC(form.packetId)} bg={pB(form.packetId)}>{selPacket?.label}</Tag>
-                      <Tag color={C.accent} bg={C.accentBg}>{selGroup?.label}</Tag>
-                      <Tag color={C.textMed} bg={C.bg}>Cours {form.num}</Tag>
-                    </div>
-                    {form.front&&<p style={{fontFamily:serif,fontSize:13,color:C.textMed,margin:"10px 0 0",lineHeight:1.5}}>{form.front.slice(0,100)}{form.front.length>100?"…":""}</p>}
-                  </div>
-                  <div style={{display:"flex",gap:10}}>
-                    <Btn fill full onClick={handleSaveText}>{saved?"✓":isNew?"Créer la carte":"Mettre à jour"}</Btn>
-                    <Btn full onClick={onCancel}>Annuler</Btn>
-                  </div>
-                </div>
-                <ClassificationPanel/>
-              </div>
-            )}
-
-            {/* ── OCCLUSION card layout ── */}
-            {cardType === "occlusion" && (
-              <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,alignItems:"start"}}>
-
-                {/* Image + dessin */}
-                <div>
-                  {!image ? (
-                    <div style={{border:`2px dashed ${C.border}`,borderRadius:12,padding:"60px 24px",textAlign:"center",background:C.surface}}>
-                      <p style={{fontSize:40,margin:"0 0 12px"}}>🖼</p>
-                      <p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Importer une image</p>
-                      <p style={{fontSize:13,color:C.textMed,margin:"0 0 20px",lineHeight:1.6}}>Photo de cours, schéma ou diagramme.<br/>Dessine ensuite des zones à masquer.</p>
-                      <label style={{fontFamily:font,fontSize:13,fontWeight:500,padding:"10px 20px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent,display:"inline-block"}}>
-                        Choisir une image
-                        <input type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-                      </label>
-                    </div>
-                  ) : (
-                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
-                      <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg}}>
-                        <p style={{fontSize:12,color:C.textMed,margin:0}}>🖱 Clique et glisse pour créer des zones à masquer</p>
-                        <label style={{fontFamily:font,fontSize:11,padding:"5px 10px",cursor:"pointer",borderRadius:5,border:`1px solid ${C.border}`,color:C.textMed,background:C.surface}}>
-                          Changer l'image
-                          <input type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-                        </label>
-                      </div>
-                      <div style={{position:"relative",userSelect:"none",lineHeight:0}}>
-                        <img src={image} onLoad={e=>{setImgW(e.target.naturalWidth);setImgH(e.target.naturalHeight);}} style={{width:"100%",display:"block"}} draggable={false}/>
-                        {imgW>0&&(
-                          <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",cursor:"crosshair"}} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
-                            {zones.map((z,i)=>(
-                              <g key={z.id}>
-                                <rect x={pct(z.x,imgW)} y={pct(z.y,imgH)} width={pct(z.w,imgW)} height={pct(z.h,imgH)} fill={z.color+"55"} stroke={z.color} strokeWidth="2"/>
-                                <text x={pct(z.x+6,imgW)} y={pct(z.y+20,imgH)} fill="white" fontSize="14" fontWeight="bold" style={{pointerEvents:"none"}}>{i+1}</text>
-                              </g>
-                            ))}
-                            {currentRect&&currentRect.w>0&&(
-                              <rect x={pct(currentRect.x,imgW)} y={pct(currentRect.y,imgH)} width={pct(currentRect.w,imgW)} height={pct(currentRect.h,imgH)} fill="#2c4a7c22" stroke="#2c4a7c" strokeWidth="2" strokeDasharray="6 3"/>
-                            )}
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right panel */}
-                <div style={{display:"flex",flexDirection:"column",gap:14}}>
-
-                  {/* Zones list */}
-                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-                    <p style={{fontFamily:serif,fontSize:15,margin:"0 0 10px"}}>Zones ({zones.length})</p>
-                    {zones.length === 0
-                      ? <p style={{fontSize:12,color:C.textLt,margin:0,lineHeight:1.6}}>Dessine des rectangles sur l'image. Chaque rectangle = 1 flashcard.</p>
-                      : <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          {zones.map((z,i) => (
-                            <div key={z.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,border:`1.5px solid ${z.color}`,background:z.color+"11"}}>
-                              <div style={{width:14,height:14,borderRadius:3,background:z.color,flexShrink:0}}/>
-                              <span style={{fontSize:13,flex:1}}>Zone {i+1}</span>
-                              <button onClick={()=>setZones(zs=>zs.filter(x=>x.id!==z.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16,lineHeight:1}}>×</button>
-                            </div>
-                          ))}
-                          <p style={{fontSize:11,color:C.textMed,margin:"6px 0 0"}}>{zones.length} zone{zones.length>1?"s":""} → {zones.length} flashcard{zones.length>1?"s":""}</p>
-                        </div>
-                    }
-                  </div>
-
-                  {/* Classification */}
-                  <ClassificationPanel/>
-
-                  {zones.length > 0 && (
-                    <Btn fill full onClick={handleSaveOcclusion}>
-                      {saved ? `✓ ${zones.length} carte${zones.length>1?"s":""} créée${zones.length>1?"s":""} !` : `Générer ${zones.length} carte${zones.length>1?"s":""} →`}
-                    </Btn>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // ─── Admin Cards list ────────────────────────────────────────────────────
-    function AdminCards({cards,onNew,onEdit,onDelete}){
-      const [fg,setFg]=useState("all"),[fn,setFn]=useState("all"),[fp,setFp]=useState("all"),[s,setS]=useState(""),[delId,setDelId]=useState(null);
-      const filtered=useMemo(()=>cards.filter(c=>(fg==="all"||c.groupId===fg)&&(fn==="all"||c.num===fn)&&(fp==="all"||c.packetId===fp)&&(!s||`${c.front} ${c.back}`.toLowerCase().includes(s.toLowerCase()))),[cards,fg,fn,fp,s]);
-      const FB=({active,onClick,children,color,bg})=><button onClick={onClick} style={{fontFamily:font,fontSize:11,fontWeight:active?600:400,padding:"5px 12px",cursor:"pointer",borderRadius:20,border:`1.5px solid ${active?(color||C.accent):C.border}`,background:active?(bg||C.accentBg):"transparent",color:active?(color||C.accent):C.textMed,whiteSpace:"nowrap"}}>{children}</button>;
-      return <div style={{maxWidth:800,margin:"0 auto",padding:24}}>
-        <div style={{position:"relative",marginBottom:14}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:C.textLt,fontSize:16}}>⌕</span><input style={{...iBox,paddingLeft:36,borderRadius:8}} placeholder="Rechercher…" value={s} onChange={e=>setS(e.target.value)}/>{s&&<button onClick={()=>setS("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16}}>×</button>}</div>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
-          <div style={{display:"flex",flexWrap:"wrap",gap:12}}>
-            <div><Lbl>Matière</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:5}}><FB active={fg==="all"} onClick={()=>setFg("all")}>Toutes</FB>{GROUPS.map(g=><FB key={g.id} active={fg===g.id} onClick={()=>setFg(g.id)}>{groupLabel(g)}</FB>)}</div></div>
-            <div><Lbl>Cours</Lbl><div style={{display:"flex",gap:5,marginTop:5}}><FB active={fn==="all"} onClick={()=>setFn("all")}>Tous</FB>{[1,2,3,4].map(n=><FB key={n} active={fn===n} onClick={()=>setFn(n)}>{n}</FB>)}</div></div>
-            <div><Lbl>Paquet</Lbl><div style={{display:"flex",gap:5,marginTop:5}}><FB active={fp==="all"} onClick={()=>setFp("all")}>Tous</FB>{PACKETS.map(pk=><FB key={pk.id} active={fp===pk.id} onClick={()=>setFp(pk.id)} color={pC(pk.id)} bg={pB(pk.id)}>{pk.label}</FB>)}</div></div>
-          </div>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><p style={{fontSize:13,color:C.textMed,margin:0}}><strong style={{color:C.text}}>{filtered.length}</strong> carte{filtered.length!==1?"s":""}</p>{(fg!=="all"||fn!=="all"||fp!=="all"||s)&&<button onClick={()=>{setFg("all");setFn("all");setFp("all");setS("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt}}>✕ Effacer</button>}</div>
-        {filtered.length===0?(<div style={{border:`1.5px dashed ${C.border}`,borderRadius:10,padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:C.textLt,margin:"0 0 16px"}}>{cards.length===0?"Aucune carte.":"Aucune correspondance."}</p>{cards.length===0&&<Btn onClick={onNew}>Créer la première carte →</Btn>}</div>):(
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {filtered.map(card=>{const grp=GROUPS.find(g=>g.id===card.groupId),col=pC(card.packetId),bg=pB(card.packetId);return(
-              <div key={card.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",display:"flex"}}>
-                <div style={{width:4,background:col,flexShrink:0}}/>
-                <div style={{flex:1,padding:"12px 14px"}}>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
-                    <Tag color={col} bg={bg} small>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
-                    <Tag color={C.accent} bg={C.accentBg} small>{grp?.label}</Tag>
-                    <Tag color={C.textMed} bg={C.bg} small>{grp ? (grp.sem===0?"Pré-rentrée":grp.sem===1?"Sem. 1":"Sem. 2") : ""}</Tag>
-                    <Tag color={C.textMed} bg={C.bg} small>Cours {card.num}</Tag>
-                  </div>
-                  {isOcclusion(card)
-                    ? <div style={{display:"flex",alignItems:"center",gap:8,margin:"0 0 3px"}}><span style={{fontSize:18}}>🖼</span><p style={{fontFamily:serif,fontSize:14,color:C.text,margin:0}}>Image Occlusion</p></div>
-                    : <p style={{fontFamily:serif,fontSize:14,color:C.text,margin:"0 0 3px",lineHeight:1.5}}>{card.front}</p>
-                  }
-                  <p style={{fontSize:12,color:C.textLt,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isOcclusion(card)?"Zone masquée → image révélée":card.back}</p>
-                  <div style={{display:"flex",gap:8,marginTop:10}}><Btn small onClick={()=>onEdit(card)}>✏ Modifier</Btn><Btn small danger onClick={()=>setDelId(card.id)}>Supprimer</Btn></div>
-                </div>
-              </div>);})}
-          </div>
-        )}
-        {delId&&<Modal onClose={()=>setDelId(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>Action irréversible.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delId);setDelId(null);}}>Supprimer</Btn><Btn onClick={()=>setDelId(null)}>Annuler</Btn></div></Modal>}
-      </div>;
-    }
-
-    // ─── Admin Users ─────────────────────────────────────────────────────────
-    function AdminUsers({accounts,onSave,onDelete}){
-      const [editor,setEditor]=useState(null),[form,setForm]=useState({username:"",password:"",planId:"sem1"}),[err,setErr]=useState(""),[delUser,setDelUser]=useState(null);
-      const openNew=()=>{setEditor("new");setForm({username:"",password:"",planId:"sem1"});setErr("");};
-      const openEdit=a=>{setEditor(a.username);setForm({username:a.username,password:a.password,planId:a.plan_id||a.planId});setErr("");};
-      const handleSave=()=>{
-        if(!form.username.trim()||!form.password.trim()){setErr("Email et mot de passe requis.");return;}
-        if(form.username===ADMIN_USERNAME){setErr("Ce nom est réservé.");return;}
-        if(editor==="new"&&accounts.find(a=>a.username===form.username)){setErr("Cet email existe déjà.");return;}
-        const plan=PLANS.find(p=>p.id===form.planId);
-        onSave({username:form.username,password:form.password,planId:form.planId,groups:plan?.groups||[]});
-        setEditor(null);
-      };
-      const mainPlans=PLANS.slice(0,4);
-      return <div style={{maxWidth:700,margin:"0 auto",padding:24}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><p style={{fontFamily:serif,fontSize:18,margin:0}}>Comptes étudiants</p><Btn fill onClick={openNew}>+ Nouvel étudiant</Btn></div>
-        {accounts.length===0?(<div style={{border:`1.5px dashed ${C.border}`,borderRadius:10,padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:C.textLt,margin:"0 0 16px"}}>Aucun étudiant inscrit.</p><Btn onClick={openNew}>Créer →</Btn></div>):(
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {accounts.map(a=>{const planId=a.plan_id||a.planId;const plan=PLANS.find(p=>p.id===planId);return(
-              <div key={a.username} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div><p style={{fontFamily:mono,fontSize:13,margin:"0 0 4px",color:C.text}}>{a.username}</p><div style={{display:"flex",gap:6}}><Tag color={C.accent} bg={C.accentBg} small>{plan?.label||planId}</Tag><Tag color={C.textMed} bg={C.bg} small>{plan?.price||"—"}</Tag></div></div>
-                <div style={{display:"flex",gap:8}}><Btn small onClick={()=>openEdit(a)}>Modifier</Btn><Btn small danger onClick={()=>setDelUser(a.username)}>Supprimer</Btn></div>
-              </div>);})}
-          </div>
-        )}
-        {editor!==null&&<Modal onClose={()=>setEditor(null)} width={380}>
-          <p style={{fontFamily:serif,fontSize:20,margin:"0 0 20px"}}>{editor==="new"?"Nouvel étudiant":"Modifier"}</p>
+// ─── Register ─────────────────────────────────────────────────────────────────
+function RegisterView({onRegister,onBack,accounts}){
+  const [step,setStep]=useState(1),[form,setForm]=useState({email:"",password:"",confirm:""}),[code,setCode]=useState(""),[error,setError]=useState(""),[sending,setSending]=useState(false),[verifying,setVerifying]=useState(false),[resendCooldown,setResendCooldown]=useState(0);
+  const cooldownRef=useRef(null);
+  const pwdState=validatePassword(form.password);
+  const handleSendCode=async()=>{
+    setError("");
+    if(!validateEmail(form.email)){setError("Adresse email invalide.");return;}
+    if(!pwdState.ok){setError("Le mot de passe ne respecte pas les critères.");return;}
+    if(form.password!==form.confirm){setError("Les mots de passe ne correspondent pas.");return;}
+    if(accounts.find(a=>a.username===form.email.trim().toLowerCase())){setError("Cette adresse email est déjà utilisée.");return;}
+    setSending(true);
+    try{const r=await fetch(`${EDGE_URL}/send-verification`,{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`},body:JSON.stringify({email:form.email.trim().toLowerCase()})});if(!r.ok){const d=await r.json();throw new Error(d.error||"Erreur envoi");}setStep(2);startCooldown();}
+    catch(e){setError(`Impossible d'envoyer le code : ${e.message}`);}
+    finally{setSending(false);}
+  };
+  const startCooldown=()=>{setResendCooldown(60);clearInterval(cooldownRef.current);cooldownRef.current=setInterval(()=>{setResendCooldown(v=>{if(v<=1){clearInterval(cooldownRef.current);return 0;}return v-1;});},1000);};
+  const handleVerify=async()=>{
+    if(code.trim().length!==6){setError("Le code doit contenir 6 chiffres.");return;}
+    setError("");setVerifying(true);
+    try{const valid=await supa.checkVerification(form.email.trim().toLowerCase(),code.trim());if(!valid){setError("Code invalide ou expiré.");return;}const newAcc={username:form.email.trim().toLowerCase(),password:form.password,email:form.email.trim().toLowerCase(),planId:"prerentree",groups:PRERENTREE_IDS};onRegister(newAcc);}
+    catch(e){setError(`Erreur : ${e.message}`);}finally{setVerifying(false);}
+  };
+  useEffect(()=>()=>clearInterval(cooldownRef.current),[]);
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{width:"100%",maxWidth:420}}>
+      <div style={{textAlign:"center",marginBottom:32}}><p style={{fontFamily:serif,fontSize:30,letterSpacing:-1,margin:"0 0 4px"}}>MyFlashcard</p><p style={{fontFamily:mono,fontSize:9,letterSpacing:3,textTransform:"uppercase",color:C.textLt,margin:0}}>Créer un compte</p></div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:24}}>{[1,2].map(s=><React.Fragment key={s}><div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:step>=s?C.accent:C.border,color:step>=s?"#fff":C.textLt,fontSize:12,fontWeight:600}}>{step>s?"✓":s}</div>{s<2&&<div style={{width:40,height:2,background:step>1?C.accent:C.border}}/>}</React.Fragment>)}</div>
+      <p style={{textAlign:"center",fontSize:12,color:C.textLt,margin:"0 0 20px"}}>{step===1?"Étape 1 — Informations":"Étape 2 — Confirmation email"}</p>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"28px",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+        {step===1&&<div>
+          <div style={{background:C.utilBg,border:`1px solid ${C.util}30`,borderRadius:8,padding:"10px 14px",marginBottom:22}}><p style={{fontSize:12,color:C.util,margin:0,lineHeight:1.6}}>✓ Accès gratuit à l'offre <strong>Pré-rentrée</strong> — paiement possible depuis ton espace.</p></div>
           <div style={{display:"flex",flexDirection:"column",gap:18}}>
-            <div><Lbl>Email / Identifiant</Lbl><input style={iLine} placeholder="email@exemple.com" value={form.username} onChange={e=>setForm(p=>({...p,username:e.target.value}))} disabled={editor!=="new"}/></div>
-            <PasswordField label="Mot de passe" value={form.password} onChange={e=>setForm(p=>({...p,password:e.target.value}))}/>
-            <div><Lbl>Abonnement</Lbl><div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>{mainPlans.map(o=><button key={o.id} onClick={()=>setForm(p=>({...p,planId:o.id}))} style={{fontFamily:font,fontSize:13,padding:"10px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${form.planId===o.id?C.accent:C.border}`,background:form.planId===o.id?C.accentBg:"transparent",color:form.planId===o.id?C.accent:C.textMed,textAlign:"left"}}>{form.planId===o.id&&"✓ "}{o.label} — {o.price}</button>)}</div></div>
+            <div><Lbl>Adresse email</Lbl><input style={{...iLine,borderColor:form.email&&!validateEmail(form.email)?C.again:C.border}} type="email" placeholder="votre@email.com" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/>{form.email&&!validateEmail(form.email)&&<p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Format invalide</p>}</div>
+            <div><PasswordField label="Mot de passe" value={form.password} onChange={e=>setForm(p=>({...p,password:e.target.value}))}/><PasswordStrength password={form.password}/></div>
+            <div><PasswordField label="Confirmer le mot de passe" value={form.confirm} onChange={e=>setForm(p=>({...p,confirm:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSendCode()}/>{form.confirm&&form.confirm!==form.password&&<p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Les mots de passe ne correspondent pas</p>}</div>
           </div>
-          {err&&<p style={{fontSize:12,color:C.again,background:C.againBg,padding:"8px 12px",borderRadius:6,margin:"14px 0 0"}}>{err}</p>}
-          <div style={{display:"flex",gap:10,marginTop:24}}><Btn fill onClick={handleSave}>{editor==="new"?"Créer":"Mettre à jour"}</Btn><Btn onClick={()=>setEditor(null)}>Annuler</Btn></div>
-        </Modal>}
-        {delUser&&<Modal onClose={()=>setDelUser(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer {delUser} ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>L'étudiant ne pourra plus se connecter.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delUser);setDelUser(null);}}>Supprimer</Btn><Btn onClick={()=>setDelUser(null)}>Annuler</Btn></div></Modal>}
-      </div>;
-    }
+          {error&&<p style={{fontSize:12,color:C.again,margin:"14px 0 0",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
+          <Btn fill full style={{marginTop:24,fontSize:14,padding:"12px"}} onClick={handleSendCode} disabled={sending}>{sending?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Envoi…</>:"Recevoir le code →"}</Btn>
+        </div>}
+        {step===2&&<div>
+          <div style={{textAlign:"center",marginBottom:24}}><p style={{fontSize:40,margin:"0 0 12px"}}>📬</p><p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Vérifie ta boîte mail</p><p style={{fontSize:13,color:C.textMed,lineHeight:1.6}}>Code envoyé à<br/><strong style={{color:C.text}}>{form.email}</strong></p></div>
+          <div style={{marginBottom:20}}><Lbl>Code de vérification</Lbl><input style={{...iLine,fontSize:32,fontWeight:700,letterSpacing:14,textAlign:"center",padding:"12px 0",fontFamily:mono,borderBottom:`2px solid ${C.accent}`}} type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} onKeyDown={e=>e.key==="Enter"&&handleVerify()} autoFocus/></div>
+          {error&&<p style={{fontSize:12,color:C.again,margin:"0 0 14px",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
+          <Btn fill full style={{fontSize:14,padding:"12px",marginBottom:12}} onClick={handleVerify} disabled={verifying||code.length!==6}>{verifying?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Vérification…</>:"Créer mon compte →"}</Btn>
+          <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:8}}><button onClick={()=>{setStep(1);setCode("");setError("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt,textDecoration:"underline"}}>← Modifier l'email</button><button onClick={()=>{if(resendCooldown>0)return;handleSendCode();}} disabled={resendCooldown>0||sending} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:resendCooldown>0?"not-allowed":"pointer",color:resendCooldown>0?C.textLt:C.accent,textDecoration:"underline",opacity:resendCooldown>0?0.6:1}}>{resendCooldown>0?`Renvoyer (${resendCooldown}s)`:"Renvoyer un code"}</button></div>
+          <p style={{fontSize:11,color:C.textLt,textAlign:"center",marginTop:12}}>Le code expire dans 10 minutes. Vérifie tes spams.</p>
+        </div>}
+      </div>
+      <button onClick={onBack} style={{display:"block",margin:"20px auto 0",fontFamily:font,fontSize:13,background:"none",border:"none",color:C.textLt,cursor:"pointer",textDecoration:"underline"}}>Déjà un compte ? Se connecter</button>
+    </div>
+  </div>;
+}
 
-    // ─── Admin ───────────────────────────────────────────────────────────────
-    function AdminView({cards,accounts,onSaveCard,onDeleteCard,onSaveUser,onDeleteUser,onBack}){
-      const [tab,setTab]     = useState("cards");
-      const [subView,setSubView] = useState("list");
-      const [editCard,setEditCard] = useState(null);
+// ─── Occlusion ────────────────────────────────────────────────────────────────
+const isOcclusion = (card) => { try { return JSON.parse(card.front)?.type==="occlusion"; } catch { return false; } };
 
-      // Handles both single card (text) and array of cards (occlusion)
-      const handleSave = async (cardOrCards) => {
-        if (Array.isArray(cardOrCards)) {
-          for (const c of cardOrCards) await onSaveCard(c);
-        } else {
-          onSaveCard(cardOrCards);
-        }
-        setTimeout(() => setSubView("list"), 700);
-      };
+function OcclusionCanvas({cardFront,showBack,showOthers}){
+  const canvasRef=useRef(null);
+  useEffect(()=>{
+    try{
+      const data=JSON.parse(cardFront);const canvas=canvasRef.current;if(!canvas)return;
+      const ctx=canvas.getContext("2d");const img=new Image();
+      img.onload=()=>{
+        canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);
+        const target=data.zones.find(z=>z.id===data.targetZone);
+        if(showBack){if(target){ctx.strokeStyle="#15803d";ctx.lineWidth=3;ctx.strokeRect(target.x-1,target.y-1,target.w+2,target.h+2);ctx.fillStyle="#15803d18";ctx.fillRect(target.x,target.y,target.w,target.h);}}
+        else{data.zones.forEach((z,i)=>{const isTarget=z.id===data.targetZone;if(isTarget){ctx.fillStyle="#4e4a46";ctx.fillRect(z.x,z.y,z.w,z.h);ctx.strokeStyle="#1a1917";ctx.lineWidth=2;ctx.strokeRect(z.x,z.y,z.w,z.h);ctx.fillStyle="white";const fs=Math.min(z.h*0.5,30);ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("?",z.x+z.w/2,z.y+z.h/2);}else if(!showOthers){ctx.fillStyle=z.color+"cc";ctx.fillRect(z.x,z.y,z.w,z.h);ctx.strokeStyle=z.color;ctx.lineWidth=1.5;ctx.strokeRect(z.x,z.y,z.w,z.h);ctx.fillStyle="white";ctx.font=`bold ${Math.min(z.h*0.45,18)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(i+1),z.x+z.w/2,z.y+z.h/2);}});}
+      };img.src=data.image;
+    }catch(e){console.error("OcclusionCanvas:",e);}
+  },[cardFront,showBack,showOthers]);
+  return <canvas ref={canvasRef} style={{maxWidth:"100%",maxHeight:300,borderRadius:8,display:"block",margin:"0 auto"}}/>;
+}
 
-      const TB=({id,label})=><button onClick={()=>setTab(id)} style={{fontFamily:font,fontSize:12,fontWeight:500,padding:"8px 18px",cursor:"pointer",border:"none",borderBottom:`2px solid ${tab===id?C.accent:"transparent"}`,background:"transparent",color:tab===id?C.accent:C.textMed}}>{label}</button>;
+// ─── Card Editor ──────────────────────────────────────────────────────────────
+function CardEditor({card,onSave,onCancel}){
+  const isNew=!card?.id;
+  const initType=!isNew&&isOcclusion(card)?"occlusion":"text";
+  const [cardType,setCardType]=useState(initType);
+  const [form,setForm]=useState({front:card?.front||"",back:card?.back||"",groupId:card?.groupId||GROUPS[0].id,num:card?.num||1,chapterId:card?.chapterId||1,packetId:card?.packetId||"prioritaire"});
+  const [saved,setSaved]=useState(false),[errors,setErrors]=useState({});
 
-      if (tab==="cards" && subView==="editor") {
-        return <CardEditor card={editCard} onSave={handleSave} onCancel={()=>setSubView("list")}/>;
-      }
+  // Occlusion state
+  const COLORS=["#e74c3c","#3498db","#2ecc71","#f39c12","#9b59b6","#1abc9c","#e67e22","#e91e63","#00bcd4","#8bc34a"];
+  const [image,setImage]=useState(null),[imgW,setImgW]=useState(0),[imgH,setImgH]=useState(0),[zones,setZones]=useState([]),[drawing,setDrawing]=useState(false),[startPos,setStartPos]=useState(null),[currentRect,setCurrentRect]=useState(null);
 
-      return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
-        <Nav
-          left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Quitter l'admin</button>}
-          center={`Admin · ${cards.length} cartes · ${accounts.length} étudiants`}
-          right={tab==="cards" && (
-            <Btn fill onClick={()=>{setEditCard(null);setSubView("editor");}}>+ Nouvelle carte</Btn>
-          )}
-        />
-        <div style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 24px",display:"flex",gap:0}}>
-          <TB id="cards" label="📚 Flashcards"/>
-          <TB id="users"  label="👤 Étudiants"/>
+  const selGroup=GROUPS.find(g=>g.id===form.groupId);
+  const availNums=selGroup?.nums||[1];
+  const availChapters=getChapters(form.groupId,form.num);
+  const selPacket=PACKETS.find(p=>p.id===form.packetId);
+
+  const handleGroupChange=v=>{const g=GROUPS.find(g=>g.id===v);const newNum=g?.nums.includes(form.num)?form.num:g?.nums[0]||1;setForm(p=>({...p,groupId:v,num:newNum,chapterId:1}));};
+  const handleNumChange=v=>setForm(p=>({...p,num:v,chapterId:1}));
+
+  const validate=()=>{const e={};if(!form.front.trim())e.front=true;if(!form.back.trim())e.back=true;setErrors(e);return!Object.keys(e).length;};
+  const handleSaveText=()=>{if(!validate())return;onSave({...form,id:card?.id||`card-${Date.now()}`});setSaved(true);};
+
+  const pct=(v,total)=>total?`${(v/total*100).toFixed(4)}%`:"0%";
+  const getSvgPos=e=>{const rect=e.currentTarget.getBoundingClientRect();return{x:((e.clientX-rect.left)/rect.width)*imgW,y:((e.clientY-rect.top)/rect.height)*imgH};};
+  const onMouseDown=e=>{e.preventDefault();const pos=getSvgPos(e);setDrawing(true);setStartPos(pos);setCurrentRect({x:pos.x,y:pos.y,w:0,h:0});};
+  const onMouseMove=e=>{if(!drawing||!startPos)return;e.preventDefault();const pos=getSvgPos(e);setCurrentRect({x:Math.min(pos.x,startPos.x),y:Math.min(pos.y,startPos.y),w:Math.abs(pos.x-startPos.x),h:Math.abs(pos.y-startPos.y)});};
+  const onMouseUp=e=>{if(!drawing)return;e.preventDefault();setDrawing(false);if(currentRect&&currentRect.w>8&&currentRect.h>8){setZones(z=>[...z,{id:`z${Date.now()}`,...currentRect,color:COLORS[z.length%COLORS.length]}]);}setCurrentRect(null);setStartPos(null);};
+  const handleFile=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{setImage(ev.target.result);setZones([]);setSaved(false);};reader.readAsDataURL(file);};
+  const handleSaveOcclusion=()=>{if(!image||zones.length===0)return;const cards=zones.map((zone,i)=>({id:`occ-${Date.now()}-${i}`,front:JSON.stringify({type:"occlusion",image,imgW,imgH,zones,targetZone:zone.id}),back:"__occlusion__",groupId:form.groupId,num:form.num,chapterId:form.chapterId,packetId:form.packetId}));onSave(cards);setSaved(true);};
+
+  // Shared classification panel
+  const ClassPanel=()=>(
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"20px",height:"fit-content"}}>
+      <p style={{fontFamily:serif,fontSize:16,margin:"0 0 20px"}}>Classification</p>
+      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+        <ClassSelector label="Matière" value={form.groupId} onChange={handleGroupChange} options={GROUPS.map(g=>({value:g.id,label:groupLabel(g)}))}/>
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18}}>
+          <ClassSelector label="Cours" value={form.num} onChange={handleNumChange} options={availNums.map(n=>({value:n,label:`Cours ${n}`}))} columns={Math.min(availNums.length,4)}/>
         </div>
-        {tab==="cards"&&<AdminCards cards={cards} onNew={()=>{setEditCard(null);setSubView("editor");}} onEdit={c=>{setEditCard(c);setSubView("editor");}} onDelete={onDeleteCard}/>}
-        {tab==="users" &&<AdminUsers accounts={accounts} onSave={onSaveUser} onDelete={onDeleteUser}/>}
-      </div>;
-    }
-
-    // ─── UpgradeModal ────────────────────────────────────────────────────────
-    function UpgradeModal({currentPlanId, username, onClose}) {
-      const [redirectingTo, setRedirectingTo] = useState(null);
-      const [tab, setTab] = useState("packs");
-      const packPlans    = PLANS.filter(p => ["sem1","sem2","both"].includes(p.id));
-      const subjectPlans = PLANS.filter(p => p.id.startsWith("g-"));
-      const handlePay = (plan) => {
-        setRedirectingTo(plan.id);
-        setTimeout(() => redirectToStripe(plan.id, username), 300);
-      };
-      const PlanRow = ({plan}) => {
-        const isCurrent  = plan.id === currentPlanId;
-        const isRedirect = redirectingTo === plan.id;
-        return (
-          <div style={{border:`1.5px solid ${isCurrent?C.accent:C.border}`,borderRadius:10,padding:"14px 18px",background:isCurrent?C.accentBg:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center",opacity:redirectingTo&&!isRedirect?0.4:1,transition:"opacity 0.2s",marginBottom:8}}>
-            <div>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
-                <p style={{fontFamily:serif,fontSize:14,margin:0,color:isCurrent?C.accent:C.text}}>{plan.label}</p>
-                {isCurrent&&<Tag color={C.accent} bg={C.accentBg} small>Actuel</Tag>}
-              </div>
-              <p style={{fontSize:11,color:C.textMed,margin:0}}>{plan.desc}</p>
-            </div>
-            <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
-              <p style={{fontSize:18,fontWeight:300,margin:"0 0 6px",color:C.text}}>{plan.price}</p>
-              {!isCurrent&&<button onClick={()=>handlePay(plan)} disabled={!!redirectingTo} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"7px 14px",cursor:redirectingTo?"wait":"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:isRedirect?C.accent:C.accentBg,color:isRedirect?"#fff":C.accent,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>
-                {isRedirect?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Redirection...</>:<>Payer {plan.price} &rarr;</>}
-              </button>}
-              {isCurrent&&<span style={{fontSize:11,color:C.accent,fontWeight:500}}>Actif</span>}
-            </div>
+        {availChapters.length>0&&(
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18}}>
+            <ClassSelector label="Chapitre" value={form.chapterId} onChange={v=>setForm(p=>({...p,chapterId:v}))} options={availChapters.map((ch,i)=>({value:i+1,label:`${i+1}. ${ch}`}))} columns={1}/>
           </div>
-        );
-      };
-      return (
-        <Modal onClose={onClose} width={520}>
-          <p style={{fontFamily:serif,fontSize:22,margin:"0 0 4px"}}>Changer d'abonnement</p>
-          <p style={{fontSize:13,color:C.textMed,margin:"0 0 16px"}}>Abonnement actuel : <strong>{PLANS.find(p=>p.id===currentPlanId)?.label||"Pré-rentrée"}</strong></p>
-          <div style={{display:"flex",gap:0,marginBottom:18,borderBottom:`1px solid ${C.border}`}}>
-            {[["packs","Par semestre"],["subjects","Par matière"]].map(([id,label])=>(
-              <button key={id} onClick={()=>setTab(id)} style={{fontFamily:font,fontSize:13,fontWeight:tab===id?600:400,padding:"8px 18px",cursor:"pointer",border:"none",borderBottom:`2px solid ${tab===id?C.accent:"transparent"}`,background:"transparent",color:tab===id?C.accent:C.textMed,marginBottom:-1}}>{label}</button>
+        )}
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18}}>
+          <ClassSelector label="Paquet" value={form.packetId} onChange={v=>setForm(p=>({...p,packetId:v}))} options={PACKETS.map(pk=>({value:pk.id,label:pk.label,color:pC(pk.id),bg:pB(pk.id)}))} columns={1}/>
+        </div>
+      </div>
+    </div>
+  );
+
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh"}}>
+    <Nav
+      left={<button onClick={onCancel} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Retour</button>}
+      center={isNew?"Nouvelle flashcard":"Modifier"}
+      right={cardType==="text"?<Btn fill onClick={handleSaveText}>{saved?"✓ Enregistré":isNew?"Créer":"Mettre à jour"}</Btn>:zones.length>0?<Btn fill onClick={handleSaveOcclusion}>{saved?`✓ Créées !`:`Générer ${zones.length} carte${zones.length>1?"s":""} →`}</Btn>:null}
+    />
+    <div style={{maxWidth:960,margin:"0 auto",padding:"28px 24px"}}>
+      {isNew&&(
+        <div style={{marginBottom:24}}>
+          <Lbl>Type de carte</Lbl>
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            {[["text","📝 Texte","Recto / Verso classique"],["occlusion","🖼 Image Occlusion","Masquer des zones sur une image"]].map(([t,lbl,desc])=>(
+              <button key={t} onClick={()=>setCardType(t)} style={{fontFamily:font,fontSize:13,fontWeight:cardType===t?600:400,padding:"12px 20px",cursor:"pointer",borderRadius:8,border:`2px solid ${cardType===t?C.accent:C.border}`,background:cardType===t?C.accentBg:C.surface,color:cardType===t?C.accent:C.textMed,display:"flex",flexDirection:"column",alignItems:"flex-start",gap:3}}>
+                <span>{cardType===t&&"✓ "}{lbl}</span>
+                <span style={{fontSize:11,fontWeight:400,color:cardType===t?C.accent:C.textLt}}>{desc}</span>
+              </button>
             ))}
           </div>
-          <div style={{maxHeight:360,overflowY:"auto"}}>
-            {tab==="packs"&&packPlans.map(plan=><PlanRow key={plan.id} plan={plan}/>)}
-            {tab==="subjects"&&<div>
-              <p style={{fontSize:12,color:C.textMed,margin:"0 0 14px",lineHeight:1.6}}>Achète uniquement les matières dont tu as besoin.</p>
-              <p style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,margin:"0 0 8px",textTransform:"uppercase"}}>Semestre 1</p>
-              {subjectPlans.filter(p=>["g-cell-bio","g-histo","g-biochem","g-biophys","g-biostat"].includes(p.id)).map(plan=><PlanRow key={plan.id} plan={plan}/>)}
-              <p style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,margin:"14px 0 8px",textTransform:"uppercase"}}>Semestre 2</p>
-              {subjectPlans.filter(p=>["g-anatomie","g-physio","g-medic","g-ssh"].includes(p.id)).map(plan=><PlanRow key={plan.id} plan={plan}/>)}
-            </div>}
+        </div>
+      )}
+
+      {cardType==="text"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"20px"}}>
+              <p style={{fontFamily:serif,fontSize:16,margin:"0 0 16px"}}>Contenu</p>
+              <div style={{marginBottom:14}}><Lbl color={errors.front?C.again:undefined}>Recto{errors.front?" (requis)":""}</Lbl><textarea style={{...iBox,minHeight:90,marginTop:6,display:"block",borderColor:errors.front?C.again:C.border}} value={form.front} onChange={e=>{setForm(p=>({...p,front:e.target.value}));setErrors(er=>({...er,front:false}));}} placeholder="La question..." rows={3}/></div>
+              <div><Lbl color={errors.back?C.again:undefined}>Verso{errors.back?" (requis)":""}</Lbl><textarea style={{...iBox,minHeight:110,marginTop:6,display:"block",borderColor:errors.back?C.again:C.border}} value={form.back} onChange={e=>{setForm(p=>({...p,back:e.target.value}));setErrors(er=>({...er,back:false}));}} placeholder="La réponse..." rows={4}/></div>
+            </div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px"}}>
+              <Lbl>Aperçu classification</Lbl>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,margin:"8px 0 0"}}>
+                <Tag color={pC(form.packetId)} bg={pB(form.packetId)}>{selPacket?.label}</Tag>
+                <Tag color={C.accent} bg={C.accentBg}>{selGroup?.label}</Tag>
+                <Tag color={C.textMed} bg={C.bg}>Cours {form.num}</Tag>
+                {availChapters[form.chapterId-1]&&<Tag color={C.textMed} bg={C.bg}>Ch. {form.chapterId} — {availChapters[form.chapterId-1]}</Tag>}
+              </div>
+              {form.front&&<p style={{fontFamily:serif,fontSize:13,color:C.textMed,margin:"10px 0 0",lineHeight:1.5}}>{form.front.slice(0,100)}{form.front.length>100?"…":""}</p>}
+            </div>
+            <div style={{display:"flex",gap:10}}><Btn fill full onClick={handleSaveText}>{saved?"✓":isNew?"Créer la carte":"Mettre à jour"}</Btn><Btn full onClick={onCancel}>Annuler</Btn></div>
           </div>
-          <div style={{background:C.goodBg,border:`1px solid ${C.good}25`,borderRadius:8,padding:"10px 14px",margin:"16px 0",display:"flex",alignItems:"center",gap:8}}>
-            <span>🔒</span>
-            <p style={{fontSize:12,color:C.good,margin:0}}>Paiement sécurisé par <strong>Stripe</strong> · Accès activé automatiquement</p>
+          <ClassPanel/>
+        </div>
+      )}
+
+      {cardType==="occlusion"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,alignItems:"start"}}>
+          <div>
+            {!image?(<div style={{border:`2px dashed ${C.border}`,borderRadius:12,padding:"60px 24px",textAlign:"center",background:C.surface}}><p style={{fontSize:40,margin:"0 0 12px"}}>🖼</p><p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Importer une image</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 20px",lineHeight:1.6}}>Dessine des zones à masquer sur l'image.</p><label style={{fontFamily:font,fontSize:13,fontWeight:500,padding:"10px 20px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent,display:"inline-block"}}>Choisir une image<input type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/></label></div>)
+            :(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg}}><p style={{fontSize:12,color:C.textMed,margin:0}}>🖱 Clique et glisse pour créer des zones</p><label style={{fontFamily:font,fontSize:11,padding:"5px 10px",cursor:"pointer",borderRadius:5,border:`1px solid ${C.border}`,color:C.textMed,background:C.surface}}>Changer<input type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/></label></div>
+                <div style={{position:"relative",userSelect:"none",lineHeight:0}}>
+                  <img src={image} onLoad={e=>{setImgW(e.target.naturalWidth);setImgH(e.target.naturalHeight);}} style={{width:"100%",display:"block"}} draggable={false}/>
+                  {imgW>0&&<svg style={{position:"absolute",inset:0,width:"100%",height:"100%",cursor:"crosshair"}} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+                    {zones.map((z,i)=><g key={z.id}><rect x={pct(z.x,imgW)} y={pct(z.y,imgH)} width={pct(z.w,imgW)} height={pct(z.h,imgH)} fill={z.color+"55"} stroke={z.color} strokeWidth="2"/><text x={pct(z.x+6,imgW)} y={pct(z.y+20,imgH)} fill="white" fontSize="14" fontWeight="bold" style={{pointerEvents:"none"}}>{i+1}</text></g>)}
+                    {currentRect&&currentRect.w>0&&<rect x={pct(currentRect.x,imgW)} y={pct(currentRect.y,imgH)} width={pct(currentRect.w,imgW)} height={pct(currentRect.h,imgH)} fill="#2c4a7c22" stroke="#2c4a7c" strokeWidth="2" strokeDasharray="6 3"/>}
+                  </svg>}
+                </div>
+              </div>)}
           </div>
-          <Btn full onClick={onClose}>Fermer</Btn>
-        </Modal>
-      );
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}><p style={{fontFamily:serif,fontSize:15,margin:"0 0 10px"}}>Zones ({zones.length})</p>{zones.length===0?<p style={{fontSize:12,color:C.textLt,margin:0,lineHeight:1.6}}>Dessine des rectangles sur l'image. Chaque rectangle = 1 flashcard.</p>:<div style={{display:"flex",flexDirection:"column",gap:6}}>{zones.map((z,i)=><div key={z.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,border:`1.5px solid ${z.color}`,background:z.color+"11"}}><div style={{width:14,height:14,borderRadius:3,background:z.color,flexShrink:0}}/><span style={{fontSize:13,flex:1}}>Zone {i+1}</span><button onClick={()=>setZones(zs=>zs.filter(x=>x.id!==z.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16,lineHeight:1}}>×</button></div>)}<p style={{fontSize:11,color:C.textMed,margin:"6px 0 0"}}>{zones.length} zone{zones.length>1?"s":""} → {zones.length} flashcard{zones.length>1?"s":""}</p></div>}</div>
+            <ClassPanel/>
+            {zones.length>0&&<Btn fill full onClick={handleSaveOcclusion}>{saved?`✓ Créées !`:`Générer ${zones.length} carte${zones.length>1?"s":""} →`}</Btn>}
+          </div>
+        </div>
+      )}
+    </div>
+  </div>;
+}
+
+// ─── Admin Cards ──────────────────────────────────────────────────────────────
+function AdminCards({cards,onNew,onEdit,onDelete}){
+  const [fg,setFg]=useState("all"),[fn,setFn]=useState("all"),[fc,setFc]=useState("all"),[fp,setFp]=useState("all"),[s,setS]=useState(""),[delId,setDelId]=useState(null);
+  const availChapters=fg!=="all"&&fn!=="all"?getChapters(fg,fn):[];
+  const filtered=useMemo(()=>cards.filter(c=>(fg==="all"||c.groupId===fg)&&(fn==="all"||c.num===fn)&&(fc==="all"||c.chapterId===fc)&&(fp==="all"||c.packetId===fp)&&(!s||`${c.front} ${c.back}`.toLowerCase().includes(s.toLowerCase()))),[cards,fg,fn,fc,fp,s]);
+  const FB=({active,onClick,children,color,bg})=><button onClick={onClick} style={{fontFamily:font,fontSize:11,fontWeight:active?600:400,padding:"5px 12px",cursor:"pointer",borderRadius:20,border:`1.5px solid ${active?(color||C.accent):C.border}`,background:active?(bg||C.accentBg):"transparent",color:active?(color||C.accent):C.textMed,whiteSpace:"nowrap"}}>{children}</button>;
+  return <div style={{maxWidth:800,margin:"0 auto",padding:24}}>
+    <div style={{position:"relative",marginBottom:14}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:C.textLt,fontSize:16}}>⌕</span><input style={{...iBox,paddingLeft:36,borderRadius:8}} placeholder="Rechercher…" value={s} onChange={e=>setS(e.target.value)}/>{s&&<button onClick={()=>setS("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16}}>×</button>}</div>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:14}}>
+        <div><Lbl>Matière</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:5}}><FB active={fg==="all"} onClick={()=>{setFg("all");setFn("all");setFc("all");}}>Toutes</FB>{GROUPS.map(g=><FB key={g.id} active={fg===g.id} onClick={()=>{setFg(g.id);setFn("all");setFc("all");}}>{g.label.split(" ")[0]}{g.sem===0?" (PR)":g.sem===1?" (S1)":" (S2)"}</FB>)}</div></div>
+        <div><Lbl>Cours</Lbl><div style={{display:"flex",gap:5,marginTop:5}}><FB active={fn==="all"} onClick={()=>{setFn("all");setFc("all");}}>Tous</FB>{(fg!=="all"?GROUPS.find(g=>g.id===fg)?.nums||[1,2,3,4]:[1,2,3,4]).map(n=><FB key={n} active={fn===n} onClick={()=>{setFn(n);setFc("all");}}>{n}</FB>)}</div></div>
+        {availChapters.length>0&&<div><Lbl>Chapitre</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:5}}><FB active={fc==="all"} onClick={()=>setFc("all")}>Tous</FB>{availChapters.map((ch,i)=><FB key={i+1} active={fc===i+1} onClick={()=>setFc(i+1)}>{i+1}. {ch.split(" ").slice(0,2).join(" ")}…</FB>)}</div></div>}
+        <div><Lbl>Paquet</Lbl><div style={{display:"flex",gap:5,marginTop:5}}><FB active={fp==="all"} onClick={()=>setFp("all")}>Tous</FB>{PACKETS.map(pk=><FB key={pk.id} active={fp===pk.id} onClick={()=>setFp(pk.id)} color={pC(pk.id)} bg={pB(pk.id)}>{pk.label}</FB>)}</div></div>
+      </div>
+    </div>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><p style={{fontSize:13,color:C.textMed,margin:0}}><strong style={{color:C.text}}>{filtered.length}</strong> carte{filtered.length!==1?"s":""}</p>{(fg!=="all"||fn!=="all"||fc!=="all"||fp!=="all"||s)&&<button onClick={()=>{setFg("all");setFn("all");setFc("all");setFp("all");setS("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt}}>✕ Effacer</button>}</div>
+    {filtered.length===0?(<div style={{border:`1.5px dashed ${C.border}`,borderRadius:10,padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:C.textLt,margin:"0 0 16px"}}>{cards.length===0?"Aucune carte.":"Aucune correspondance."}</p>{cards.length===0&&<Btn onClick={onNew}>Créer la première carte →</Btn>}</div>):(
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {filtered.map(card=>{
+          const grp=GROUPS.find(g=>g.id===card.groupId),col=pC(card.packetId),bg=pB(card.packetId);
+          const chName=getChapters(card.groupId,card.num)[card.chapterId-1];
+          return <div key={card.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",display:"flex"}}>
+            <div style={{width:4,background:col,flexShrink:0}}/>
+            <div style={{flex:1,padding:"12px 14px"}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
+                <Tag color={col} bg={bg} small>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
+                <Tag color={C.accent} bg={C.accentBg} small>{grp?.label}{grp?(grp.sem===0?" · PR":grp.sem===1?" · S1":" · S2"):""}</Tag>
+                <Tag color={C.textMed} bg={C.bg} small>Cours {card.num}</Tag>
+                {chName&&<Tag color={C.textMed} bg={C.bg} small>Ch.{card.chapterId} {chName.slice(0,18)}{chName.length>18?"…":""}</Tag>}
+              </div>
+              {isOcclusion(card)?<div style={{display:"flex",alignItems:"center",gap:8,margin:"0 0 3px"}}><span style={{fontSize:18}}>🖼</span><p style={{fontFamily:serif,fontSize:14,color:C.text,margin:0}}>Image Occlusion</p></div>:<p style={{fontFamily:serif,fontSize:14,color:C.text,margin:"0 0 3px",lineHeight:1.5}}>{card.front}</p>}
+              <p style={{fontSize:12,color:C.textLt,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isOcclusion(card)?"Zone masquée → image révélée":card.back}</p>
+              <div style={{display:"flex",gap:8,marginTop:10}}><Btn small onClick={()=>onEdit(card)}>✏ Modifier</Btn><Btn small danger onClick={()=>setDelId(card.id)}>Supprimer</Btn></div>
+            </div>
+          </div>;
+        })}
+      </div>
+    )}
+    {delId&&<Modal onClose={()=>setDelId(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>Action irréversible.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delId);setDelId(null);}}>Supprimer</Btn><Btn onClick={()=>setDelId(null)}>Annuler</Btn></div></Modal>}
+  </div>;
+}
+
+// ─── Admin Users ──────────────────────────────────────────────────────────────
+function AdminUsers({accounts,onSave,onDelete}){
+  const [editor,setEditor]=useState(null),[form,setForm]=useState({username:"",password:"",planId:"sem1"}),[err,setErr]=useState(""),[delUser,setDelUser]=useState(null);
+  const openNew=()=>{setEditor("new");setForm({username:"",password:"",planId:"sem1"});setErr("");};
+  const openEdit=a=>{setEditor(a.username);setForm({username:a.username,password:a.password,planId:a.plan_id||a.planId});setErr("");};
+  const handleSave=()=>{if(!form.username.trim()||!form.password.trim()){setErr("Email et mot de passe requis.");return;}if(form.username===ADMIN_USERNAME){setErr("Ce nom est réservé.");return;}if(editor==="new"&&accounts.find(a=>a.username===form.username)){setErr("Cet email existe déjà.");return;}const plan=PLANS.find(p=>p.id===form.planId);onSave({username:form.username,password:form.password,planId:form.planId,groups:plan?.groups||[]});setEditor(null);};
+  const mainPlans=PLANS.slice(0,4);
+  return <div style={{maxWidth:700,margin:"0 auto",padding:24}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><p style={{fontFamily:serif,fontSize:18,margin:0}}>Comptes étudiants</p><Btn fill onClick={openNew}>+ Nouvel étudiant</Btn></div>
+    {accounts.length===0?(<div style={{border:`1.5px dashed ${C.border}`,borderRadius:10,padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:C.textLt,margin:"0 0 16px"}}>Aucun étudiant inscrit.</p><Btn onClick={openNew}>Créer →</Btn></div>):(
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {accounts.map(a=>{const planId=a.plan_id||a.planId;const plan=PLANS.find(p=>p.id===planId);return<div key={a.username} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><p style={{fontFamily:mono,fontSize:13,margin:"0 0 4px",color:C.text}}>{a.username}</p><div style={{display:"flex",gap:6}}><Tag color={C.accent} bg={C.accentBg} small>{plan?.label||planId}</Tag><Tag color={C.textMed} bg={C.bg} small>{plan?.price||"—"}</Tag></div></div><div style={{display:"flex",gap:8}}><Btn small onClick={()=>openEdit(a)}>Modifier</Btn><Btn small danger onClick={()=>setDelUser(a.username)}>Supprimer</Btn></div></div>;})}
+      </div>
+    )}
+    {editor!==null&&<Modal onClose={()=>setEditor(null)} width={380}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 20px"}}>{editor==="new"?"Nouvel étudiant":"Modifier"}</p><div style={{display:"flex",flexDirection:"column",gap:18}}><div><Lbl>Email / Identifiant</Lbl><input style={iLine} placeholder="email@exemple.com" value={form.username} onChange={e=>setForm(p=>({...p,username:e.target.value}))} disabled={editor!=="new"}/></div><PasswordField label="Mot de passe" value={form.password} onChange={e=>setForm(p=>({...p,password:e.target.value}))}/><div><Lbl>Abonnement</Lbl><div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>{mainPlans.map(o=><button key={o.id} onClick={()=>setForm(p=>({...p,planId:o.id}))} style={{fontFamily:font,fontSize:13,padding:"10px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${form.planId===o.id?C.accent:C.border}`,background:form.planId===o.id?C.accentBg:"transparent",color:form.planId===o.id?C.accent:C.textMed,textAlign:"left"}}>{form.planId===o.id&&"✓ "}{o.label} — {o.price}</button>)}</div></div></div>{err&&<p style={{fontSize:12,color:C.again,background:C.againBg,padding:"8px 12px",borderRadius:6,margin:"14px 0 0"}}>{err}</p>}<div style={{display:"flex",gap:10,marginTop:24}}><Btn fill onClick={handleSave}>{editor==="new"?"Créer":"Mettre à jour"}</Btn><Btn onClick={()=>setEditor(null)}>Annuler</Btn></div></Modal>}
+    {delUser&&<Modal onClose={()=>setDelUser(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer {delUser} ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>L'étudiant ne pourra plus se connecter.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delUser);setDelUser(null);}}>Supprimer</Btn><Btn onClick={()=>setDelUser(null)}>Annuler</Btn></div></Modal>}
+  </div>;
+}
+
+// ─── Admin ────────────────────────────────────────────────────────────────────
+function AdminView({cards,accounts,onSaveCard,onDeleteCard,onSaveUser,onDeleteUser,onBack}){
+  const [tab,setTab]=useState("cards"),[subView,setSubView]=useState("list"),[editCard,setEditCard]=useState(null);
+  const handleSave=async(cardOrCards)=>{if(Array.isArray(cardOrCards)){for(const c of cardOrCards)await onSaveCard(c);}else{onSaveCard(cardOrCards);}setTimeout(()=>setSubView("list"),700);};
+  const TB=({id,label})=><button onClick={()=>setTab(id)} style={{fontFamily:font,fontSize:12,fontWeight:500,padding:"8px 18px",cursor:"pointer",border:"none",borderBottom:`2px solid ${tab===id?C.accent:"transparent"}`,background:"transparent",color:tab===id?C.accent:C.textMed}}>{label}</button>;
+  if(tab==="cards"&&subView==="editor")return <CardEditor card={editCard} onSave={handleSave} onCancel={()=>setSubView("list")}/>;
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
+    <Nav left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Quitter l'admin</button>} center={`Admin · ${cards.length} cartes · ${accounts.length} étudiants`} right={tab==="cards"&&<Btn fill onClick={()=>{setEditCard(null);setSubView("editor");}}>+ Nouvelle carte</Btn>}/>
+    <div style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 24px",display:"flex",gap:0}}><TB id="cards" label="📚 Flashcards"/><TB id="users" label="👤 Étudiants"/></div>
+    {tab==="cards"&&<AdminCards cards={cards} onNew={()=>{setEditCard(null);setSubView("editor");}} onEdit={c=>{setEditCard(c);setSubView("editor");}} onDelete={onDeleteCard}/>}
+    {tab==="users"&&<AdminUsers accounts={accounts} onSave={onSaveUser} onDelete={onDeleteUser}/>}
+  </div>;
+}
+
+// ─── UpgradeModal ─────────────────────────────────────────────────────────────
+function UpgradeModal({currentPlanId,username,onClose}){
+  const [redirectingTo,setRedirectingTo]=useState(null),[tab,setTab]=useState("packs");
+  const packPlans=PLANS.filter(p=>["sem1","sem2","both"].includes(p.id));
+  const subjectPlans=PLANS.filter(p=>p.id.startsWith("g-"));
+  const handlePay=plan=>{setRedirectingTo(plan.id);setTimeout(()=>redirectToStripe(plan.id,username),300);};
+  const PlanRow=({plan})=>{const isCurrent=plan.id===currentPlanId,isRedirect=redirectingTo===plan.id;return<div style={{border:`1.5px solid ${isCurrent?C.accent:C.border}`,borderRadius:10,padding:"14px 18px",background:isCurrent?C.accentBg:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center",opacity:redirectingTo&&!isRedirect?0.4:1,transition:"opacity 0.2s",marginBottom:8}}><div><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}><p style={{fontFamily:serif,fontSize:14,margin:0,color:isCurrent?C.accent:C.text}}>{plan.label}</p>{isCurrent&&<Tag color={C.accent} bg={C.accentBg} small>Actuel</Tag>}</div><p style={{fontSize:11,color:C.textMed,margin:0}}>{plan.desc}</p></div><div style={{textAlign:"right",flexShrink:0,marginLeft:16}}><p style={{fontSize:18,fontWeight:300,margin:"0 0 6px",color:C.text}}>{plan.price}</p>{!isCurrent&&<button onClick={()=>handlePay(plan)} disabled={!!redirectingTo} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"7px 14px",cursor:redirectingTo?"wait":"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:isRedirect?C.accent:C.accentBg,color:isRedirect?"#fff":C.accent,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{isRedirect?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Redirection...</>:<>Payer {plan.price} &rarr;</>}</button>}{isCurrent&&<span style={{fontSize:11,color:C.accent,fontWeight:500}}>Actif</span>}</div></div>;};
+  return <Modal onClose={onClose} width={520}>
+    <p style={{fontFamily:serif,fontSize:22,margin:"0 0 4px"}}>Changer d'abonnement</p>
+    <p style={{fontSize:13,color:C.textMed,margin:"0 0 16px"}}>Abonnement actuel : <strong>{PLANS.find(p=>p.id===currentPlanId)?.label||"Pré-rentrée"}</strong></p>
+    <div style={{display:"flex",gap:0,marginBottom:18,borderBottom:`1px solid ${C.border}`}}>{[["packs","Par semestre"],["subjects","Par matière"]].map(([id,label])=><button key={id} onClick={()=>setTab(id)} style={{fontFamily:font,fontSize:13,fontWeight:tab===id?600:400,padding:"8px 18px",cursor:"pointer",border:"none",borderBottom:`2px solid ${tab===id?C.accent:"transparent"}`,background:"transparent",color:tab===id?C.accent:C.textMed,marginBottom:-1}}>{label}</button>)}</div>
+    <div style={{maxHeight:360,overflowY:"auto"}}>
+      {tab==="packs"&&packPlans.map(plan=><PlanRow key={plan.id} plan={plan}/>)}
+      {tab==="subjects"&&<div>
+        <p style={{fontSize:12,color:C.textMed,margin:"0 0 14px",lineHeight:1.6}}>Achète uniquement les matières dont tu as besoin.</p>
+        <p style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,margin:"0 0 8px",textTransform:"uppercase"}}>Semestre 1</p>
+        {subjectPlans.filter(p=>["g-cell-bio","g-histo","g-biochem","g-biomol","g-biophys","g-biostat"].includes(p.id)).map(plan=><PlanRow key={plan.id} plan={plan}/>)}
+        <p style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,margin:"14px 0 8px",textTransform:"uppercase"}}>Semestre 2</p>
+        {subjectPlans.filter(p=>["g-anatomie","g-physio","g-medic","g-ssh"].includes(p.id)).map(plan=><PlanRow key={plan.id} plan={plan}/>)}
+      </div>}
+    </div>
+    <div style={{background:C.goodBg,border:`1px solid ${C.good}25`,borderRadius:8,padding:"10px 14px",margin:"16px 0",display:"flex",alignItems:"center",gap:8}}><span>🔒</span><p style={{fontSize:12,color:C.good,margin:0}}>Paiement sécurisé par <strong>Stripe</strong> · Accès activé automatiquement</p></div>
+    <Btn full onClick={onClose}>Fermer</Btn>
+  </Modal>;
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({currentUser,cards,progress,settings,onStudy,onGlobalStudy,onAdmin,onSettings,onLogout,paymentStatus,onClosePaymentBanner}){
+  const isAdmin=currentUser.role==="admin";
+  const userGroups=currentUser.plan?.groups||[];
+  const currentPlan=PLANS.find(p=>p.id===currentUser.plan?.planId);
+  const displayName=currentUser.username.includes("@")?currentUser.username.split("@")[0]:currentUser.username;
+  const [showUpgrade,setShowUpgrade]=useState(false);
+  const gModes=[{id:"prioritaire",label:"Prioritaire",col:C.prio,bg:C.prioBg},{id:"important",label:"Important",col:C.imp,bg:C.impBg},{id:"utile",label:"Utile",col:C.util,bg:C.utilBg},{id:null,label:"Toutes",col:C.accent,bg:C.accentBg}];
+  const TABS=[{id:"prerentree",label:"Pré-rentrée",sem:0,planIds:["prerentree","sem1","sem2","both"],price:"Gratuit"},{id:"sem1",label:"Semestre 1",sem:1,planIds:["sem1","both"],price:"99 €"},{id:"sem2",label:"Semestre 2",sem:2,planIds:["sem2","both"],price:"149 €"}];
+  const planId=currentUser.plan?.planId||"prerentree";
+  const defaultTab=planId==="sem2"?"sem2":planId==="both"?"sem1":planId==="sem1"?"sem1":"prerentree";
+  const [activeTab,setActiveTab]=useState(defaultTab);
+  const hasTabAccess=tab=>isAdmin||tab.planIds.includes(planId);
+  const tabGroups=useMemo(()=>{const sem=TABS.find(t=>t.id===activeTab)?.sem;return GROUPS.filter(g=>g.sem===sem);},[activeTab]);
+  const visibleIds=isAdmin?[...PRERENTREE_IDS,...ALL]:userGroups;
+
+  // GroupBlock with course tabs → chapter rows
+  function GroupBlock({group}){
+    const [activeCours,setActiveCours]=useState(null);
+    const chapters=activeCours?getChapters(group.id,activeCours):[];
+
+    function PktBtn({chapterId,pk}){
+      const col=pC(pk.id),bg=pB(pk.id);
+      const {total,due}=chapterStats(cards,progress,group.id,activeCours,chapterId,pk.id);
+      const hasDue=due>0,upToDate=total>0&&!hasDue;
+      return <button onClick={()=>total>0&&onStudy(group.id,activeCours,chapterId,pk.id)} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"6px 10px",cursor:total>0?"pointer":"default",borderRadius:6,border:`1.5px solid ${hasDue?col:upToDate?C.border:"#e8e5e0"}`,background:hasDue?bg:C.surface,color:hasDue?col:upToDate?C.textLt:"#c0bbb5",display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:78,transition:"border-color 0.15s"}} onMouseEnter={e=>{if(total>0)e.currentTarget.style.borderColor=col;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=hasDue?col:upToDate?C.border:"#e8e5e0";}}><span style={{fontSize:10}}>{pk.label}</span><span style={{fontSize:10,fontWeight:400}}>{total===0?"vide":hasDue?`${due} carte${due>1?"s":""}` :"✓ à jour"}</span></button>;
     }
 
-    // ─── Dashboard ───────────────────────────────────────────────────────────
-    function Dashboard({currentUser,cards,progress,settings,onStudy,onGlobalStudy,onAdmin,onSettings,onLogout,paymentStatus,onClosePaymentBanner}){
-      const isAdmin = currentUser.role === "admin";
-      const userGroups = currentUser.plan?.groups || [];
-      const currentPlan = PLANS.find(p => p.id === currentUser.plan?.planId);
-      const displayName = currentUser.username.includes("@") ? currentUser.username.split("@")[0] : currentUser.username;
-      const [showUpgrade, setShowUpgrade] = useState(false);
-      const gModes = [{id:"prioritaire",label:"Prioritaire",col:C.prio,bg:C.prioBg},{id:"important",label:"Important",col:C.imp,bg:C.impBg},{id:"utile",label:"Utile",col:C.util,bg:C.utilBg},{id:null,label:"Toutes",col:C.accent,bg:C.accentBg}];
+    return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:12}}>
+      {/* Header */}
+      <div style={{padding:"11px 18px",borderBottom:`1px solid ${C.border}`,background:C.bg}}><p style={{fontFamily:serif,fontSize:15,margin:0}}>{group.label}</p></div>
 
-      const TABS = [
-        { id: "prerentree", label: "Pré-rentrée", sem: 0, planIds: ["prerentree","sem1","sem2","both"], price: "Gratuit" },
-        { id: "sem1",       label: "Semestre 1",  sem: 1, planIds: ["sem1","both"],                    price: "99 €" },
-        { id: "sem2",       label: "Semestre 2",  sem: 2, planIds: ["sem2","both"],                    price: "149 €" },
-      ];
-      const planId = currentUser.plan?.planId || "prerentree";
-      const defaultTab = planId === "sem2" ? "sem2" : planId === "both" ? "sem1" : planId === "sem1" ? "sem1" : "prerentree";
-      const [activeTab, setActiveTab] = useState(defaultTab);
+      {/* Course selector */}
+      <div style={{display:"flex",gap:8,padding:"10px 18px",flexWrap:"wrap",borderBottom:activeCours?`1px solid ${C.border}`:"none",background:C.surface}}>
+        {group.nums.map(n=>{
+          const active=activeCours===n;
+          const due=courseDueCount(cards,progress,group.id,n);
+          return <button key={n} onClick={()=>setActiveCours(active?null:n)} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"8px 16px",cursor:"pointer",borderRadius:7,border:`1.5px solid ${active?C.accent:due>0?C.good:C.border}`,background:active?C.accentBg:due>0?C.goodBg:"transparent",color:active?C.accent:due>0?C.good:C.textMed,display:"flex",alignItems:"center",gap:7,transition:"all 0.15s"}}>
+            <span>Cours {n}</span>
+            {due>0&&!active&&<span style={{fontFamily:mono,fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:10,background:C.good,color:"#fff"}}>{due}</span>}
+            <span style={{fontSize:10,opacity:0.6}}>{active?"▲":"▼"}</span>
+          </button>;
+        })}
+      </div>
 
-      const hasTabAccess = (tab) => {
-        if (isAdmin) return true;
-        return tab.planIds.includes(planId);
-      };
-
-      const tabGroups = useMemo(() => {
-        const sem = TABS.find(t => t.id === activeTab)?.sem;
-        return GROUPS.filter(g => g.sem === sem);
-      }, [activeTab]);
-
-      const visibleIds = isAdmin ? [...PRERENTREE_IDS, ...ALL] : userGroups;
-
-      function PktBtn({gid,num,pk}){
-        const {total,due}=packetStats(cards,progress,gid,num,pk.id);
-        const col=pC(pk.id),bg=pB(pk.id),hasDue=due>0,upToDate=total>0&&!hasDue;
-        return <button onClick={()=>total>0&&onStudy(gid,num,pk.id)} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"7px 12px",cursor:total>0?"pointer":"default",borderRadius:6,border:`1.5px solid ${hasDue?col:upToDate?C.border:"#e8e5e0"}`,background:hasDue?bg:C.surface,color:hasDue?col:upToDate?C.textLt:"#c0bbb5",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:90}} onMouseEnter={e=>{if(total>0)e.currentTarget.style.borderColor=col;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=hasDue?col:upToDate?C.border:"#e8e5e0";}}><span>{pk.label}</span><span style={{fontSize:10,fontWeight:400}}>{total===0?"vide":hasDue?`${due} carte${due>1?"s":""}` :"✓ à jour"}</span></button>;
-      }
-      function GroupBlock({group}){
-        return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:12}}>
-          <div style={{padding:"11px 18px",borderBottom:`1px solid ${C.border}`,background:C.bg}}><p style={{fontFamily:serif,fontSize:15,margin:0}}>{group.label}</p></div>
-          {group.nums.map((n,i)=><div key={n} style={{display:"flex",alignItems:"center",padding:"10px 18px",gap:14,borderBottom:i<group.nums.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,minWidth:52,textTransform:"uppercase"}}>Cours {n}</span><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{PACKETS.map(pk=><PktBtn key={pk.id} gid={group.id} num={n} pk={pk}/>)}</div></div>)}
-        </div>;
-      }
-
-      const tabHasAccess = hasTabAccess(TABS.find(t => t.id === activeTab));
-
-      return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text,paddingTop:paymentStatus?56:0}}>
-        <PaymentBanner status={paymentStatus} onClose={onClosePaymentBanner}/>
-        <Nav left={<span style={{fontFamily:serif,fontSize:20}}>MyFlashcard</span>} center="Tableau de bord"
-          right={<><Btn small onClick={onSettings}>Paramètres</Btn>{isAdmin&&<Btn small onClick={onAdmin}>Admin</Btn>}<button onClick={onLogout} style={{fontFamily:font,fontSize:12,background:"none",border:"none",color:C.textLt,cursor:"pointer"}}>Déconnexion</button></>}/>
-        <div style={{maxWidth:760,margin:"0 auto",padding:"28px 24px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 18px",marginBottom:20}}>
-            <div>
-              <p style={{fontSize:12,color:C.textLt,margin:"0 0 2px",fontFamily:mono,letterSpacing:1,textTransform:"uppercase"}}>Bonjour {displayName}</p>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <p style={{fontSize:15,margin:0,color:C.text}}>{currentPlan?.label||"Pré-rentrée"}</p>
-                <Tag color={currentPlan?.price==="Gratuit"?C.util:C.accent} bg={currentPlan?.price==="Gratuit"?C.utilBg:C.accentBg} small>{currentPlan?.price||"Gratuit"}</Tag>
-              </div>
-            </div>
-            {!isAdmin&&<button onClick={()=>setShowUpgrade(true)} style={{fontFamily:font,fontSize:12,fontWeight:600,padding:"9px 18px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent,display:"flex",alignItems:"center",gap:7}}>💳 Changer d'abonnement</button>}
-          </div>
-
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 22px",marginBottom:24}}>
-            <p style={{fontFamily:serif,fontSize:18,margin:"0 0 3px"}}>Révision globale</p>
-            <p style={{fontSize:12,color:C.textMed,margin:"0 0 16px"}}>Toutes vos matières en une session</p>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-              {gModes.map(mode=>{const count=globalDue(cards,progress,visibleIds,settings,mode.id),hasCards=count>0;return <button key={String(mode.id)} onClick={()=>hasCards&&onGlobalStudy(mode.id)} style={{fontFamily:font,padding:"14px 10px",cursor:hasCards?"pointer":"default",borderRadius:8,border:`1.5px solid ${hasCards?mode.col:C.border}`,background:hasCards?mode.bg:"transparent",color:hasCards?mode.col:C.textLt,display:"flex",flexDirection:"column",alignItems:"center",gap:6}} onMouseEnter={e=>{if(hasCards)e.currentTarget.style.transform="translateY(-2px)";}} onMouseLeave={e=>{e.currentTarget.style.transform="none";}}><span style={{fontSize:11,fontWeight:600,textAlign:"center",lineHeight:1.3}}>{mode.label}</span><span style={{fontSize:18,fontWeight:300}}>{count}</span><span style={{fontSize:10,opacity:0.7}}>carte{count!==1?"s":""}</span></button>;})}
-            </div>
-          </div>
-
-          <div style={{display:"flex",gap:8,marginBottom:20}}>
-            {TABS.map(tab => {
-              const active = activeTab === tab.id;
-              const access = hasTabAccess(tab);
-              return <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{fontFamily:font,fontSize:13,fontWeight:active?600:400,padding:"8px 20px",cursor:"pointer",borderRadius:8,border:`1.5px solid ${active?C.accent:C.border}`,background:active?C.accentBg:"transparent",color:active?C.accent:access?C.textMed:C.textLt,position:"relative"}}>
-                {tab.label}{!access&&<span style={{fontSize:9,marginLeft:6,color:C.textLt}}>🔒</span>}
-              </button>;
-            })}
-          </div>
-
-          {tabHasAccess ? (
-            <div>
-              <p style={{fontFamily:serif,fontSize:18,margin:"0 0 14px"}}>Par matière et cours</p>
-              {tabGroups.map(g=><GroupBlock key={g.id} group={g}/>)}
-            </div>
-          ) : (
-            <div style={{border:`1.5px dashed ${C.border}`,borderRadius:12,padding:"48px 24px",textAlign:"center",background:C.surface}}>
-              <p style={{fontSize:32,margin:"0 0 12px"}}>🔒</p>
-              <p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>{TABS.find(t=>t.id===activeTab)?.label}</p>
-              <p style={{fontSize:14,color:C.textMed,margin:"0 0 24px",lineHeight:1.6}}>Cet abonnement n'est pas inclus dans ton offre actuelle.<br/>Débloque l'accès à toutes les matières pour <strong>{TABS.find(t=>t.id===activeTab)?.price}</strong>.</p>
-              {!isAdmin&&<button onClick={()=>setShowUpgrade(true)} style={{fontFamily:font,fontSize:14,fontWeight:600,padding:"12px 28px",cursor:"pointer",borderRadius:8,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent}}>💳 S'abonner →</button>}
-            </div>
+      {/* Chapters */}
+      {activeCours&&(
+        <div style={{animation:"fadeIn 0.18s ease"}}>
+          {chapters.length===0?(
+            <div style={{padding:"14px 18px"}}><p style={{fontSize:12,color:C.textLt,margin:0}}>Pas encore de chapitres définis pour ce cours.</p></div>
+          ):(
+            chapters.map((chName,i)=>{
+              const chIdx=i+1;
+              const chDue=PACKETS.reduce((acc,pk)=>acc+chapterStats(cards,progress,group.id,activeCours,chIdx,pk.id).due,0);
+              return <div key={chIdx} style={{display:"flex",alignItems:"center",padding:"9px 18px",gap:12,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:180}}>
+                  <span style={{fontFamily:mono,fontSize:9,letterSpacing:1,color:C.textLt,minWidth:18,flexShrink:0}}>{chIdx}</span>
+                  <span style={{fontFamily:font,fontSize:13,color:chDue>0?C.text:C.textMed,fontWeight:chDue>0?500:400}}>{chName}</span>
+                  {chDue>0&&<span style={{fontFamily:mono,fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:10,background:C.accent,color:"#fff",flexShrink:0}}>{chDue}</span>}
+                </div>
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  {PACKETS.map(pk=><PktBtn key={pk.id} chapterId={chIdx} pk={pk}/>)}
+                </div>
+              </div>;
+            })
           )}
         </div>
-        {showUpgrade&&<UpgradeModal currentPlanId={currentUser.plan?.planId} username={currentUser.username} onClose={()=>setShowUpgrade(false)}/>}
-      </div>;
-    }
+      )}
+    </div>;
+  }
 
-    // ─── Study ───────────────────────────────────────────────────────────────
-    function StudyView({label,queue,onRate,onBack,settings,isAdmin}){
-      const [idx,setIdx]=useState(0),[showBack,setShowBack]=useState(false),[showOthers,setShowOthers]=useState(false),[localQ,setLocalQ]=useState(queue),[done,setDone]=useState(false),[stats,setStats]=useState({correct:0,total:0});
-      const card=localQ[idx];
-      const handleRate=async rating=>{
-        setStats(s=>({total:s.total+1,correct:s.correct+(rating>=3?1:0)}));
-        const np=await onRate(card,rating);
-        const q=[...localQ];
-        if(np.state==="learning"||np.state==="relearning"){q.splice(idx,1);q.splice(Math.min(idx+4,q.length),0,card);}else q.splice(idx,1);
-        setLocalQ(q);if(!q.length||idx>=q.length){setDone(true);return;}setShowBack(false);setShowOthers(false);
-      };
-      if(done||!card)return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}><div style={{fontSize:52}}>✓</div><p style={{fontFamily:serif,fontSize:26,margin:0}}>Session terminée</p><p style={{fontSize:14,color:C.textMed}}>{stats.correct}/{stats.total} · {stats.total>0?Math.round((stats.correct/stats.total)*100):0}%</p><Btn fill style={{marginTop:20}} onClick={onBack}>← Tableau de bord</Btn></div>;
-      const col=pC(card.packetId),grp=GROUPS.find(g=>g.id===card.groupId);
-      return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
-        <Nav left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Retour</button>} center={label} right={<span style={{fontSize:12,color:C.textLt}}>{idx+1} / {localQ.length}</span>}/>
-        <div style={{height:3,background:C.border}}><div style={{height:3,background:col,width:`${(idx/Math.max(1,localQ.length))*100}%`,transition:"width 0.3s"}}/></div>
-        <div style={{maxWidth:560,margin:"0 auto",padding:"28px 24px 0"}}>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
-            <Tag color={col} bg={pB(card.packetId)}>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
-            <Tag color={C.accent} bg={C.accentBg}>{grp?.label}</Tag>
-            <Tag color={C.textMed} bg={C.bg}>Cours {card.num}</Tag>
-            <Tag color={C.textLt} bg={C.bg}>{stateLabel(null)}</Tag>
-          </div>
-          {isOcclusion(card) ? (
-            <div style={{marginBottom:22}}>
-              <div style={{background:C.surface,border:`1.5px solid ${showBack?col:C.border}`,borderRadius:12,padding:"16px 20px",transition:"border-color 0.3s"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <Lbl>{showBack?"Réponse — zone révélée":showOthers?"Contexte visible — zone cible masquée":"Toutes les zones masquées"}</Lbl>
-                  {showBack&&<Tag color={C.good} bg={C.goodBg} small>Révélé</Tag>}
-                </div>
-                <div onClick={()=>!showBack&&setShowBack(true)} style={{cursor:showBack?"default":"pointer"}}>
-                  <OcclusionCanvas cardFront={card.front} showBack={showBack} showOthers={showOthers}/>
-                </div>
-                {!showBack&&(
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
-                    <button onClick={e=>{e.stopPropagation();setShowOthers(s=>!s);}} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"6px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${showOthers?C.imp:C.border}`,background:showOthers?C.impBg:"transparent",color:showOthers?C.imp:C.textMed,display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{showOthers?"🙈 Masquer le contexte":"👁 Voir le contexte"}</button>
-                    <button onClick={()=>setShowBack(true)} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${col}`,background:pB(card.packetId),color:col}}>Révéler →</button>
-                  </div>
-                )}
-              </div>
-              {!showBack&&(
-                <div style={{marginTop:8,padding:"8px 12px",background:C.bg,borderRadius:6,border:`1px solid ${C.border}`}}>
-                  <p style={{fontSize:11,color:C.textMed,margin:0,lineHeight:1.6}}><strong>👁 Voir le contexte</strong> révèle les autres zones sans dévoiler la réponse. Clique sur <strong>Révéler</strong> quand tu as ta réponse.</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{perspective:1200,height:260,marginBottom:22}}>
-              <div style={{width:"100%",height:"100%",position:"relative",transformStyle:"preserve-3d",transform:showBack?"rotateY(180deg)":"rotateY(0)",transition:"transform 0.4s cubic-bezier(0.4,0,0.2,1)",cursor:showBack?"default":"pointer"}} onClick={()=>!showBack&&setShowBack(true)}>
-                <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",background:C.surface,borderRadius:12,border:`1.5px solid ${C.border}`,padding:"28px 32px",display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                  <Lbl>Question</Lbl>
-                  <p style={{fontFamily:serif,fontSize:20,lineHeight:1.6,margin:"8px 0 0",...(!isAdmin?noSel:{})}} onContextMenu={!isAdmin?e=>e.preventDefault():undefined}>{card.front}</p>
-                  <p style={{fontSize:12,color:C.textLt,position:"absolute",bottom:16,right:22}}>Cliquez pour révéler →</p>
-                </div>
-                <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",background:C.surface,borderRadius:12,border:`1.5px solid ${col}`,padding:"28px 32px",display:"flex",flexDirection:"column",justifyContent:"center",transform:"rotateY(180deg)"}}>
-                  <Lbl>Réponse</Lbl>
-                  <p style={{fontSize:15,lineHeight:1.8,margin:"8px 0 0",color:C.textMed,...(!isAdmin?noSel:{})}} onContextMenu={!isAdmin?e=>e.preventDefault():undefined}>{card.back}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          {showBack&&<div><Lbl>Comment était-ce ?</Lbl><div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:10}}>{[[1,"À revoir",C.again,C.againBg],[2,"Difficile",C.hard,C.hardBg],[3,"Bien",C.good,C.goodBg],[4,"Facile",C.easy,C.easyBg]].map(([r,lbl,btnCol,btnBg])=><button key={r} onClick={()=>handleRate(r)} style={{fontFamily:font,padding:"14px 8px",cursor:"pointer",borderRadius:8,border:`1.5px solid ${btnCol}`,background:btnBg,color:btnCol,display:"flex",flexDirection:"column",alignItems:"center",gap:6}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";}} onMouseLeave={e=>{e.currentTarget.style.transform="none";}}><span style={{fontSize:12,fontWeight:600}}>{lbl}</span><span style={{fontSize:14,fontWeight:700}}>{getIntervalLabel(null,r,settings)}</span></button>)}</div></div>}
-        </div>
-      </div>;
-    }
+  const tabHasAccess=hasTabAccess(TABS.find(t=>t.id===activeTab));
 
-    // ─── Settings ────────────────────────────────────────────────────────────
-    function SettingsView({settings,onSave,onBack}){
-      const [s,setS]=useState(settings),[saved,setSaved]=useState(false);
-      const save=()=>{onSave(s);setSaved(true);setTimeout(()=>setSaved(false),2000);};
-      const Sl=({k,label,desc,min,max,step,unit})=><div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><p style={{fontSize:13,fontWeight:500,margin:0}}>{label}</p><p style={{fontSize:18,fontWeight:300,color:C.accent,margin:0}}>{s[k]}<span style={{fontSize:11}}> {unit}</span></p></div><p style={{fontSize:11,color:C.textMed,margin:"0 0 8px"}}>{desc}</p><input type="range" min={min} max={max} step={step} value={s[k]} onChange={e=>setS(p=>({...p,[k]:Number(e.target.value)}))} style={{width:"100%"}}/></div>;
-      const Sec=({title,children})=><div style={{marginBottom:24}}><h2 style={{fontFamily:serif,fontSize:19,fontWeight:400,margin:"0 0 12px",paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{title}</h2>{children}</div>;
-      return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
-        <Nav left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Retour</button>} center="Paramètres" right={<Btn fill onClick={save}>{saved?"✓ Sauvegardé":"Sauvegarder"}</Btn>}/>
-        <div style={{maxWidth:600,margin:"0 auto",padding:"28px 24px"}}>
-          <Sec title="🎯 Nouvelles cartes du jour">
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px"}}><MultiToggle label="Matières à découvrir" value={s.dailyGroups} onChange={v=>setS(p=>({...p,dailyGroups:v}))} options={GROUPS.map(g=>({value:g.id,label:groupLabel(g)}))} colorFn={()=>C.accent}/></div>
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px"}}><MultiToggle label="Paquets à découvrir" value={s.dailyPackets} onChange={v=>setS(p=>({...p,dailyPackets:v}))} options={PACKETS.map(pk=>({value:pk.id,label:pk.label}))} colorFn={pC}/></div>
-            </div>
-          </Sec>
-          <Sec title="⏱ Intervalles d'apprentissage">
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <Sl k="againMin" label="À revoir"  desc="Délai de réaffichage."        min={1} max={10}  step={1}  unit="min"/>
-              <Sl k="hardMin"  label="Difficile" desc="Délai carte presque sue."      min={2} max={30}  step={1}  unit="min"/>
-              <Sl k="goodMin"  label="Bien"      desc="Avant graduation en révision." min={5} max={60}  step={5}  unit="min"/>
-              <Sl k="easyDays" label="Facile"    desc="Graduation immédiate."         min={1} max={14}  step={1}  unit="jours"/>
-            </div>
-          </Sec>
-          <Sec title="📚 Session d'étude">
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <Sl k="newCardsPerDay"   label="Nouvelles cartes / jour" desc="Limite quotidienne."  min={5}  max={100} step={5}  unit=""/>
-              <Sl k="maxReviewsPerDay" label="Révisions max / session" desc="Plafond par session." min={20} max={500} step={10} unit=""/>
-            </div>
-          </Sec>
-          <Btn fill full style={{fontSize:14}} onClick={save}>{saved?"✓ Sauvegardé":"Sauvegarder tous les paramètres"}</Btn>
-        </div>
-      </div>;
-    }
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text,paddingTop:paymentStatus?56:0}}>
+    <PaymentBanner status={paymentStatus} onClose={onClosePaymentBanner}/>
+    <Nav left={<span style={{fontFamily:serif,fontSize:20}}>MyFlashcard</span>} center="Tableau de bord" right={<><Btn small onClick={onSettings}>Paramètres</Btn>{isAdmin&&<Btn small onClick={onAdmin}>Admin</Btn>}<button onClick={onLogout} style={{fontFamily:font,fontSize:12,background:"none",border:"none",color:C.textLt,cursor:"pointer"}}>Déconnexion</button></>}/>
+    <div style={{maxWidth:760,margin:"0 auto",padding:"28px 24px"}}>
 
-    // ─── Landing ─────────────────────────────────────────────────────────────
-    function Landing({onBack, onRegister}) {
-      const [tab, setTab] = useState("semester");
-      const [registerFirst, setRegisterFirst] = useState(null);
-      const display = tab === "semester" ? PLANS.slice(0,4) : PLANS.filter(p=>p.id.startsWith("g-"));
-      return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
-        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"14px 32px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{display:"flex",alignItems:"baseline",gap:12}}><span style={{fontFamily:serif,fontSize:22}}>MyFlashcard</span><span style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,textTransform:"uppercase"}}>Sciences du vivant</span></div>
-          <div style={{display:"flex",gap:10}}><Btn onClick={onRegister} style={{borderColor:C.util,color:C.util}}>Créer un compte gratuit</Btn><Btn fill onClick={onBack}>Se connecter →</Btn></div>
+      {/* Bandeau utilisateur */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 18px",marginBottom:20}}>
+        <div><p style={{fontSize:12,color:C.textLt,margin:"0 0 2px",fontFamily:mono,letterSpacing:1,textTransform:"uppercase"}}>Bonjour {displayName}</p><div style={{display:"flex",alignItems:"center",gap:8}}><p style={{fontSize:15,margin:0,color:C.text}}>{currentPlan?.label||"Pré-rentrée"}</p><Tag color={currentPlan?.price==="Gratuit"?C.util:C.accent} bg={currentPlan?.price==="Gratuit"?C.utilBg:C.accentBg} small>{currentPlan?.price||"Gratuit"}</Tag></div></div>
+        {!isAdmin&&<button onClick={()=>setShowUpgrade(true)} style={{fontFamily:font,fontSize:12,fontWeight:600,padding:"9px 18px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent,display:"flex",alignItems:"center",gap:7}}>💳 Changer d'abonnement</button>}
+      </div>
+
+      {/* Révision globale */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 22px",marginBottom:24}}>
+        <p style={{fontFamily:serif,fontSize:18,margin:"0 0 3px"}}>Révision globale</p>
+        <p style={{fontSize:12,color:C.textMed,margin:"0 0 16px"}}>Toutes vos matières en une session</p>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+          {gModes.map(mode=>{const count=globalDue(cards,progress,visibleIds,settings,mode.id),hasCards=count>0;return<button key={String(mode.id)} onClick={()=>hasCards&&onGlobalStudy(mode.id)} style={{fontFamily:font,padding:"14px 10px",cursor:hasCards?"pointer":"default",borderRadius:8,border:`1.5px solid ${hasCards?mode.col:C.border}`,background:hasCards?mode.bg:"transparent",color:hasCards?mode.col:C.textLt,display:"flex",flexDirection:"column",alignItems:"center",gap:6,transition:"transform 0.15s"}} onMouseEnter={e=>{if(hasCards)e.currentTarget.style.transform="translateY(-2px)";}} onMouseLeave={e=>{e.currentTarget.style.transform="none";}}><span style={{fontSize:11,fontWeight:600,textAlign:"center",lineHeight:1.3}}>{mode.label}</span><span style={{fontSize:18,fontWeight:300}}>{count}</span><span style={{fontSize:10,opacity:0.7}}>carte{count!==1?"s":""}</span></button>;})}
         </div>
-        <div style={{maxWidth:760,margin:"0 auto",padding:"56px 32px 40px"}}>
-          <p style={{fontFamily:serif,fontSize:36,fontWeight:400,letterSpacing:-1,margin:"0 0 16px",lineHeight:1.1}}>Flashcards médicales intelligentes</p>
-          <p style={{fontSize:15,lineHeight:1.8,color:C.textMed,maxWidth:420,margin:"0 0 12px"}}>Répétition espacée SM-2 · Prioritaire, Important, Utile · révision globale ou par matière.</p>
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:28,padding:"8px 14px",background:C.goodBg,border:`1px solid ${C.good}30`,borderRadius:6}}>
-            <span>🔒</span>
-            <p style={{fontSize:12,color:C.good,margin:0}}>Paiement sécurisé par <strong>Stripe</strong> · Accès instantané</p>
-          </div>
-          <div style={{display:"flex",gap:8,marginBottom:20}}>
-            {[["semester","Par semestre / année"],["subject","Par matière"]].map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{fontFamily:font,fontSize:13,fontWeight:500,padding:"7px 16px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${tab===k?C.accent:C.border}`,background:tab===k?C.accentBg:"transparent",color:tab===k?C.accent:C.textMed}}>{l}</button>)}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:tab==="semester"?"repeat(4,1fr)":"repeat(3,1fr)",gap:10}}>
-            {display.map(plan=>{const isFree=plan.price==="Gratuit";return <div key={plan.id} style={{background:C.surface,border:`1.5px solid ${isFree?C.util:C.border}`,borderRadius:10,padding:"20px 16px",display:"flex",flexDirection:"column"}}>
-              {isFree&&<Tag color={C.util} bg={C.utilBg} small>Offert</Tag>}
-              <p style={{fontFamily:serif,fontSize:15,margin:isFree?"8px 0 6px":"0 0 6px"}}>{plan.label}</p>
-              <p style={{fontSize:11,color:C.textMed,margin:"0 0 12px",lineHeight:1.5,flex:1}}>{plan.desc}</p>
-              <p style={{fontSize:isFree?18:24,fontWeight:300,margin:"0 0 14px",color:isFree?C.util:C.text}}>{plan.price}</p>
-              {isFree?<button onClick={onRegister} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"8px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.util}`,background:C.utilBg,color:C.util}}>Créer un compte →</button>
-                :<button onClick={()=>setRegisterFirst(plan)} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"8px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent}}>💳 Accéder →</button>}
-            </div>;})}
+      </div>
+
+      {/* Onglets semestres */}
+      <div style={{display:"flex",gap:8,marginBottom:20}}>
+        {TABS.map(tab=>{const active=activeTab===tab.id,access=hasTabAccess(tab);return<button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{fontFamily:font,fontSize:13,fontWeight:active?600:400,padding:"8px 20px",cursor:"pointer",borderRadius:8,border:`1.5px solid ${active?C.accent:C.border}`,background:active?C.accentBg:"transparent",color:active?C.accent:access?C.textMed:C.textLt}}>{tab.label}{!access&&<span style={{fontSize:9,marginLeft:6,color:C.textLt}}>🔒</span>}</button>;})}
+      </div>
+
+      {tabHasAccess?(
+        <div>
+          <p style={{fontFamily:serif,fontSize:18,margin:"0 0 14px"}}>Par matière · Cours · Chapitre</p>
+          {tabGroups.map(g=><GroupBlock key={g.id} group={g}/>)}
+        </div>
+      ):(
+        <div style={{border:`1.5px dashed ${C.border}`,borderRadius:12,padding:"48px 24px",textAlign:"center",background:C.surface}}>
+          <p style={{fontSize:32,margin:"0 0 12px"}}>🔒</p>
+          <p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>{TABS.find(t=>t.id===activeTab)?.label}</p>
+          <p style={{fontSize:14,color:C.textMed,margin:"0 0 24px",lineHeight:1.6}}>Cet abonnement n'est pas inclus dans ton offre actuelle.<br/>Débloque l'accès pour <strong>{TABS.find(t=>t.id===activeTab)?.price}</strong>.</p>
+          {!isAdmin&&<button onClick={()=>setShowUpgrade(true)} style={{fontFamily:font,fontSize:14,fontWeight:600,padding:"12px 28px",cursor:"pointer",borderRadius:8,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent}}>💳 S'abonner →</button>}
+        </div>
+      )}
+    </div>
+    {showUpgrade&&<UpgradeModal currentPlanId={currentUser.plan?.planId} username={currentUser.username} onClose={()=>setShowUpgrade(false)}/>}
+  </div>;
+}
+
+// ─── Study ────────────────────────────────────────────────────────────────────
+function StudyView({label,queue,onRate,onBack,settings,isAdmin}){
+  const [idx,setIdx]=useState(0),[showBack,setShowBack]=useState(false),[showOthers,setShowOthers]=useState(false),[localQ,setLocalQ]=useState(queue),[done,setDone]=useState(false),[stats,setStats]=useState({correct:0,total:0});
+  const card=localQ[idx];
+  const handleRate=async rating=>{
+    setStats(s=>({total:s.total+1,correct:s.correct+(rating>=3?1:0)}));
+    const np=await onRate(card,rating);
+    const q=[...localQ];
+    if(np.state==="learning"||np.state==="relearning"){q.splice(idx,1);q.splice(Math.min(idx+4,q.length),0,card);}else q.splice(idx,1);
+    setLocalQ(q);if(!q.length||idx>=q.length){setDone(true);return;}setShowBack(false);setShowOthers(false);
+  };
+  if(done||!card)return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}><div style={{fontSize:52}}>✓</div><p style={{fontFamily:serif,fontSize:26,margin:0}}>Session terminée</p><p style={{fontSize:14,color:C.textMed}}>{stats.correct}/{stats.total} · {stats.total>0?Math.round((stats.correct/stats.total)*100):0}%</p><Btn fill style={{marginTop:20}} onClick={onBack}>← Tableau de bord</Btn></div>;
+  const col=pC(card.packetId),grp=GROUPS.find(g=>g.id===card.groupId);
+  const chName=getChapters(card.groupId,card.num)[card.chapterId-1];
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
+    <Nav left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Retour</button>} center={label} right={<span style={{fontSize:12,color:C.textLt}}>{idx+1} / {localQ.length}</span>}/>
+    <div style={{height:3,background:C.border}}><div style={{height:3,background:col,width:`${(idx/Math.max(1,localQ.length))*100}%`,transition:"width 0.3s"}}/></div>
+    <div style={{maxWidth:560,margin:"0 auto",padding:"28px 24px 0"}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
+        <Tag color={col} bg={pB(card.packetId)}>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
+        <Tag color={C.accent} bg={C.accentBg}>{grp?.label}</Tag>
+        <Tag color={C.textMed} bg={C.bg}>Cours {card.num}</Tag>
+        {chName&&<Tag color={C.textMed} bg={C.bg}>Ch.{card.chapterId} {chName}</Tag>}
+        <Tag color={C.textLt} bg={C.bg}>{stateLabel(null)}</Tag>
+      </div>
+      {isOcclusion(card)?(
+        <div style={{marginBottom:22}}>
+          <div style={{background:C.surface,border:`1.5px solid ${showBack?col:C.border}`,borderRadius:12,padding:"16px 20px",transition:"border-color 0.3s"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><Lbl>{showBack?"Réponse — zone révélée":showOthers?"Contexte visible":"Toutes les zones masquées"}</Lbl>{showBack&&<Tag color={C.good} bg={C.goodBg} small>Révélé</Tag>}</div>
+            <div onClick={()=>!showBack&&setShowBack(true)} style={{cursor:showBack?"default":"pointer"}}><OcclusionCanvas cardFront={card.front} showBack={showBack} showOthers={showOthers}/></div>
+            {!showBack&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}><button onClick={e=>{e.stopPropagation();setShowOthers(s=>!s);}} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"6px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${showOthers?C.imp:C.border}`,background:showOthers?C.impBg:"transparent",color:showOthers?C.imp:C.textMed,display:"flex",alignItems:"center",gap:6}}>{showOthers?"🙈 Masquer le contexte":"👁 Voir le contexte"}</button><button onClick={()=>setShowBack(true)} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${col}`,background:pB(card.packetId),color:col}}>Révéler →</button></div>}
           </div>
         </div>
-        {registerFirst&&<Modal onClose={()=>setRegisterFirst(null)} width={420}>
-          <p style={{fontFamily:serif,fontSize:22,margin:"0 0 4px"}}>Presque là !</p>
-          <p style={{fontSize:14,color:C.textMed,margin:"0 0 20px"}}>{registerFirst.label} — <strong>{registerFirst.price}</strong></p>
-          <div style={{background:C.accentBg,border:`1px solid ${C.accent}20`,borderRadius:8,padding:"16px",marginBottom:20}}>
-            <ol style={{fontSize:13,color:C.textMed,margin:0,paddingLeft:20,lineHeight:2.3}}>
-              <li>Crée un compte gratuit <strong>(30 sec)</strong></li>
-              <li>Clique <strong>« 💳 Changer d'abonnement »</strong> depuis ton espace</li>
-              <li>Paie par carte → accès activé <strong>instantanément</strong> ✓</li>
-            </ol>
+      ):(
+        <div style={{perspective:1200,height:260,marginBottom:22}}>
+          <div style={{width:"100%",height:"100%",position:"relative",transformStyle:"preserve-3d",transform:showBack?"rotateY(180deg)":"rotateY(0)",transition:"transform 0.4s cubic-bezier(0.4,0,0.2,1)",cursor:showBack?"default":"pointer"}} onClick={()=>!showBack&&setShowBack(true)}>
+            <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",background:C.surface,borderRadius:12,border:`1.5px solid ${C.border}`,padding:"28px 32px",display:"flex",flexDirection:"column",justifyContent:"center"}}><Lbl>Question</Lbl><p style={{fontFamily:serif,fontSize:20,lineHeight:1.6,margin:"8px 0 0",...(!isAdmin?noSel:{})}} onContextMenu={!isAdmin?e=>e.preventDefault():undefined}>{card.front}</p><p style={{fontSize:12,color:C.textLt,position:"absolute",bottom:16,right:22}}>Cliquez pour révéler →</p></div>
+            <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",background:C.surface,borderRadius:12,border:`1.5px solid ${col}`,padding:"28px 32px",display:"flex",flexDirection:"column",justifyContent:"center",transform:"rotateY(180deg)"}}><Lbl>Réponse</Lbl><p style={{fontSize:15,lineHeight:1.8,margin:"8px 0 0",color:C.textMed,...(!isAdmin?noSel:{})}} onContextMenu={!isAdmin?e=>e.preventDefault():undefined}>{card.back}</p></div>
           </div>
-          <div style={{display:"flex",gap:10}}><Btn fill full onClick={onRegister}>Créer mon compte →</Btn><Btn onClick={()=>setRegisterFirst(null)}>Annuler</Btn></div>
-        </Modal>}
-      </div>;
+        </div>
+      )}
+      {showBack&&<div><Lbl>Comment était-ce ?</Lbl><div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:10}}>{[[1,"À revoir",C.again,C.againBg],[2,"Difficile",C.hard,C.hardBg],[3,"Bien",C.good,C.goodBg],[4,"Facile",C.easy,C.easyBg]].map(([r,lbl,btnCol,btnBg])=><button key={r} onClick={()=>handleRate(r)} style={{fontFamily:font,padding:"14px 8px",cursor:"pointer",borderRadius:8,border:`1.5px solid ${btnCol}`,background:btnBg,color:btnCol,display:"flex",flexDirection:"column",alignItems:"center",gap:6,transition:"transform 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";}} onMouseLeave={e=>{e.currentTarget.style.transform="none";}}><span style={{fontSize:12,fontWeight:600}}>{lbl}</span><span style={{fontSize:14,fontWeight:700}}>{getIntervalLabel(null,r,settings)}</span></button>)}</div></div>}
+    </div>
+  </div>;
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+function SettingsView({settings,onSave,onBack}){
+  const [s,setS]=useState(settings),[saved,setSaved]=useState(false);
+  const save=()=>{onSave(s);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const Sl=({k,label,desc,min,max,step,unit})=><div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><p style={{fontSize:13,fontWeight:500,margin:0}}>{label}</p><p style={{fontSize:18,fontWeight:300,color:C.accent,margin:0}}>{s[k]}<span style={{fontSize:11}}> {unit}</span></p></div><p style={{fontSize:11,color:C.textMed,margin:"0 0 8px"}}>{desc}</p><input type="range" min={min} max={max} step={step} value={s[k]} onChange={e=>setS(p=>({...p,[k]:Number(e.target.value)}))} style={{width:"100%"}}/></div>;
+  const Sec=({title,children})=><div style={{marginBottom:24}}><h2 style={{fontFamily:serif,fontSize:19,fontWeight:400,margin:"0 0 12px",paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{title}</h2>{children}</div>;
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
+    <Nav left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Retour</button>} center="Paramètres" right={<Btn fill onClick={save}>{saved?"✓ Sauvegardé":"Sauvegarder"}</Btn>}/>
+    <div style={{maxWidth:600,margin:"0 auto",padding:"28px 24px"}}>
+      <Sec title="🎯 Nouvelles cartes du jour"><div style={{display:"flex",flexDirection:"column",gap:10}}><div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px"}}><MultiToggle label="Matières à découvrir" value={s.dailyGroups} onChange={v=>setS(p=>({...p,dailyGroups:v}))} options={GROUPS.map(g=>({value:g.id,label:groupLabel(g)}))} colorFn={()=>C.accent}/></div><div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px"}}><MultiToggle label="Paquets à découvrir" value={s.dailyPackets} onChange={v=>setS(p=>({...p,dailyPackets:v}))} options={PACKETS.map(pk=>({value:pk.id,label:pk.label}))} colorFn={pC}/></div></div></Sec>
+      <Sec title="⏱ Intervalles d'apprentissage"><div style={{display:"flex",flexDirection:"column",gap:8}}><Sl k="againMin" label="À revoir" desc="Délai de réaffichage." min={1} max={10} step={1} unit="min"/><Sl k="hardMin" label="Difficile" desc="Délai carte presque sue." min={2} max={30} step={1} unit="min"/><Sl k="goodMin" label="Bien" desc="Avant graduation en révision." min={5} max={60} step={5} unit="min"/><Sl k="easyDays" label="Facile" desc="Graduation immédiate." min={1} max={14} step={1} unit="jours"/></div></Sec>
+      <Sec title="📚 Session d'étude"><div style={{display:"flex",flexDirection:"column",gap:8}}><Sl k="newCardsPerDay" label="Nouvelles cartes / jour" desc="Limite quotidienne." min={5} max={100} step={5} unit=""/><Sl k="maxReviewsPerDay" label="Révisions max / session" desc="Plafond par session." min={20} max={500} step={10} unit=""/></div></Sec>
+      <Btn fill full style={{fontSize:14}} onClick={save}>{saved?"✓ Sauvegardé":"Sauvegarder tous les paramètres"}</Btn>
+    </div>
+  </div>;
+}
+
+// ─── Landing ──────────────────────────────────────────────────────────────────
+function Landing({onBack,onRegister}){
+  const [tab,setTab]=useState("semester"),[registerFirst,setRegisterFirst]=useState(null);
+  const display=tab==="semester"?PLANS.slice(0,4):PLANS.filter(p=>p.id.startsWith("g-"));
+  return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
+    <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"14px 32px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"baseline",gap:12}}><span style={{fontFamily:serif,fontSize:22}}>MyFlashcard</span><span style={{fontFamily:mono,fontSize:9,letterSpacing:2,color:C.textLt,textTransform:"uppercase"}}>Sciences du vivant</span></div><div style={{display:"flex",gap:10}}><Btn onClick={onRegister} style={{borderColor:C.util,color:C.util}}>Créer un compte gratuit</Btn><Btn fill onClick={onBack}>Se connecter →</Btn></div></div>
+    <div style={{maxWidth:760,margin:"0 auto",padding:"56px 32px 40px"}}>
+      <p style={{fontFamily:serif,fontSize:36,fontWeight:400,letterSpacing:-1,margin:"0 0 16px",lineHeight:1.1}}>Flashcards médicales intelligentes</p>
+      <p style={{fontSize:15,lineHeight:1.8,color:C.textMed,maxWidth:420,margin:"0 0 12px"}}>Répétition espacée SM-2 · Prioritaire, Important, Utile · révision globale ou par matière et chapitre.</p>
+      <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:28,padding:"8px 14px",background:C.goodBg,border:`1px solid ${C.good}30`,borderRadius:6}}><span>🔒</span><p style={{fontSize:12,color:C.good,margin:0}}>Paiement sécurisé par <strong>Stripe</strong> · Accès instantané</p></div>
+      <div style={{display:"flex",gap:8,marginBottom:20}}>{[["semester","Par semestre / année"],["subject","Par matière"]].map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{fontFamily:font,fontSize:13,fontWeight:500,padding:"7px 16px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${tab===k?C.accent:C.border}`,background:tab===k?C.accentBg:"transparent",color:tab===k?C.accent:C.textMed}}>{l}</button>)}</div>
+      <div style={{display:"grid",gridTemplateColumns:tab==="semester"?"repeat(4,1fr)":"repeat(3,1fr)",gap:10}}>
+        {display.map(plan=>{const isFree=plan.price==="Gratuit";return<div key={plan.id} style={{background:C.surface,border:`1.5px solid ${isFree?C.util:C.border}`,borderRadius:10,padding:"20px 16px",display:"flex",flexDirection:"column"}}>{isFree&&<Tag color={C.util} bg={C.utilBg} small>Offert</Tag>}<p style={{fontFamily:serif,fontSize:15,margin:isFree?"8px 0 6px":"0 0 6px"}}>{plan.label}</p><p style={{fontSize:11,color:C.textMed,margin:"0 0 12px",lineHeight:1.5,flex:1}}>{plan.desc}</p><p style={{fontSize:isFree?18:24,fontWeight:300,margin:"0 0 14px",color:isFree?C.util:C.text}}>{plan.price}</p>{isFree?<button onClick={onRegister} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"8px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.util}`,background:C.utilBg,color:C.util}}>Créer un compte →</button>:<button onClick={()=>setRegisterFirst(plan)} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"8px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accentBg,color:C.accent}}>💳 Accéder →</button>}</div>;})}
+      </div>
+    </div>
+    {registerFirst&&<Modal onClose={()=>setRegisterFirst(null)} width={420}><p style={{fontFamily:serif,fontSize:22,margin:"0 0 4px"}}>Presque là !</p><p style={{fontSize:14,color:C.textMed,margin:"0 0 20px"}}>{registerFirst.label} — <strong>{registerFirst.price}</strong></p><div style={{background:C.accentBg,border:`1px solid ${C.accent}20`,borderRadius:8,padding:"16px",marginBottom:20}}><ol style={{fontSize:13,color:C.textMed,margin:0,paddingLeft:20,lineHeight:2.3}}><li>Crée un compte gratuit <strong>(30 sec)</strong></li><li>Clique <strong>« 💳 Changer d'abonnement »</strong> depuis ton espace</li><li>Paie par carte → accès activé <strong>instantanément</strong> ✓</li></ol></div><div style={{display:"flex",gap:10}}><Btn fill full onClick={onRegister}>Créer mon compte →</Btn><Btn onClick={()=>setRegisterFirst(null)}>Annuler</Btn></div></Modal>}
+  </div>;
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+function App(){
+  const [view,setView]=useState("loading"),[currentUser,setCurrentUser]=useState(null),[cards,setCards]=useState([]),[prog,setProg]=useState({}),[settings,setSettings]=useState(DEFAULT_SETTINGS),[accounts,setAccounts]=useState([]),[studyCtx,setStudyCtx]=useState(null),[paymentStatus,setPaymentStatus]=useState(null);
+
+  useEffect(()=>{
+    async function init(){
+      const savedSet=storage.get("mx6-settings");
+      if(savedSet)setSettings({...DEFAULT_SETTINGS,...savedSet});
+      const remoteCards=await supa.getCards();
+      if(remoteCards&&remoteCards.length>0){setCards(remoteCards);}
+      else{for(const c of INITIAL_CARDS)await supa.upsertCard(c);setCards(INITIAL_CARDS);}
+      const remoteAccounts=await supa.getAccounts();
+      setAccounts(remoteAccounts||[]);
+      const saved=storage.get("mx6-session");
+      if(saved){setProg(storage.get(`mx6-prog-${saved.username}`)||{});setCurrentUser(saved);setView("dashboard");}
+      else setView("login");
     }
+    init();
+  },[]);
 
-    // ─── App ─────────────────────────────────────────────────────────────────
-    function App() {
-      const [view, setView]               = useState("loading");
-      const [currentUser, setCurrentUser] = useState(null);
-      const [cards, setCards]             = useState([]);
-      const [prog, setProg]               = useState({});
-      const [settings, setSettings]       = useState(DEFAULT_SETTINGS);
-      const [accounts, setAccounts]       = useState([]);
-      const [studyCtx, setStudyCtx]       = useState(null);
-      const [paymentStatus, setPaymentStatus] = useState(null);
-
-      useEffect(() => {
-        async function init() {
-          const savedSet = storage.get("mx6-settings");
-          if (savedSet) setSettings({ ...DEFAULT_SETTINGS, ...savedSet });
-          const remoteCards = await supa.getCards();
-          if (remoteCards && remoteCards.length > 0) { setCards(remoteCards); }
-          else { for (const c of INITIAL_CARDS) { await supa.upsertCard(c); } setCards(INITIAL_CARDS); }
-          const remoteAccounts = await supa.getAccounts();
-          setAccounts(remoteAccounts || []);
-          const saved = storage.get("mx6-session");
-          if (saved) { setProg(storage.get(`mx6-prog-${saved.username}`) || {}); setCurrentUser(saved); setView("dashboard"); }
-          else { setView("login"); }
-        }
-        init();
-      }, []);
-
-      useEffect(() => {
-        if (!currentUser) return;
-        const params = new URLSearchParams(window.location.search);
-        const payment = params.get("payment");
-        if (!payment) return;
-        window.history.replaceState({}, "", window.location.pathname);
-        setPaymentStatus(payment);
-        if (payment === "success" && currentUser.role !== "admin") {
-          setTimeout(async () => {
-            const accs = await supa.getAccounts();
-            if (!accs) return;
-            setAccounts(accs);
-            const acc = accs.find(a => a.username === currentUser.username);
-            if (acc) {
-              const planId = acc.plan_id || acc.planId;
-              const plan = PLANS.find(p => p.id === planId);
-              const newUser = { ...currentUser, plan: { planId, groups: acc.groups || plan?.groups || [] } };
-              setCurrentUser(newUser); storage.set("mx6-session", newUser);
-            }
-          }, 2000);
-        }
-        const t = setTimeout(() => setPaymentStatus(null), 8000);
-        return () => clearTimeout(t);
-      }, [currentUser]);
-
-      const handleLogin = (email, password) => {
-        const lc = email.toLowerCase();
-        if (lc === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-          const u = { username: ADMIN_USERNAME, role: "admin", plan: { planId: "both", groups: ALL } };
-          setProg(storage.get(`mx6-prog-${ADMIN_USERNAME}`) || {});
-          setCurrentUser(u); storage.set("mx6-session", u); setView("dashboard"); return true;
-        }
-        const acc = accounts.find(a => a.username === lc && a.password === password);
-        if (acc) {
-          const planId = acc.plan_id || acc.planId;
-          const plan = PLANS.find(p => p.id === planId);
-          const u = { username: acc.username, role: "student", plan: { planId, groups: acc.groups || plan?.groups || [] } };
-          setProg(storage.get(`mx6-prog-${lc}`) || {});
-          setCurrentUser(u); storage.set("mx6-session", u); setView("dashboard"); return true;
-        }
-        return false;
-      };
-
-      const logout   = () => { storage.del("mx6-session"); setCurrentUser(null); setProg({}); setView("login"); };
-      const saveProg = useCallback(p => { setProg(p); if (currentUser) storage.set(`mx6-prog-${currentUser.username}`, p); }, [currentUser]);
-      const saveSet  = useCallback(s => { setSettings(s); storage.set("mx6-settings", s); }, []);
-
-      const handleSaveCard   = useCallback(async cd => { await supa.upsertCard(cd); setCards(p => p.find(c=>c.id===cd.id)?p.map(c=>c.id===cd.id?cd:c):[...p,cd]); }, []);
-      const handleDeleteCard = useCallback(async id => { await supa.deleteCard(id); setCards(p => p.filter(c=>c.id!==id)); }, []);
-      const handleSaveUser   = useCallback(async acc => { await supa.upsertAccount(acc); setAccounts(p => p.find(a=>a.username===acc.username)?p.map(a=>a.username===acc.username?{...a,...acc,plan_id:acc.planId}:a):[...p,{...acc,plan_id:acc.planId}]); }, []);
-      const handleDeleteUser = useCallback(async username => { await supa.deleteAccount(username); setAccounts(p => p.filter(a=>a.username!==username)); }, []);
-      const handleRegister   = useCallback(async newAcc => {
-        await supa.upsertAccount(newAcc);
-        setAccounts(p => [...p, {...newAcc, plan_id: newAcc.planId}]);
-        const u = { username: newAcc.username, role: "student", plan: { planId: newAcc.planId, groups: newAcc.groups } };
-        setProg({}); setCurrentUser(u); storage.set("mx6-session", u);
-      }, []);
-
-      const startStudy = useCallback((gid, num, pkId) => {
-        const queue = buildQueue(filterCards(cards,gid,num,pkId), prog, settings);
-        if (!queue.length) { alert("Aucune carte à réviser !"); return; }
-        setStudyCtx({ label:`${GROUPS.find(g=>g.id===gid)?.label} · Cours ${num} · ${PACKETS.find(p=>p.id===pkId)?.label}`, queue });
-        setView("study");
-      }, [cards, prog, settings]);
-
-      const startGlobalStudy = useCallback(pkId => {
-        const ids = currentUser?.plan?.groups || [];
-        const queue = buildQueue(cards.filter(c=>ids.includes(c.groupId)&&(!pkId||c.packetId===pkId)), prog, settings);
-        if (!queue.length) { alert("Aucune carte à réviser !"); return; }
-        setStudyCtx({ label: pkId?`Révision globale · ${PACKETS.find(p=>p.id===pkId)?.label}`:"Révision globale · Toutes", queue });
-        setView("study");
-      }, [cards, prog, currentUser, settings]);
-
-      const handleRate = useCallback(async (card, rating) => {
-        const np = computeNext(prog[card.id], rating, settings);
-        saveProg({ ...prog, [card.id]: np }); return np;
-      }, [prog, saveProg, settings]);
-
-      if (view==="loading")   return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}><p style={{fontFamily:serif,fontSize:28,letterSpacing:-0.5}}>MyFlashcard</p><p style={{color:C.textLt,fontSize:13}}>Chargement…</p></div>;
-      if (view==="landing")   return <Landing onBack={()=>setView("login")} onRegister={()=>setView("register")}/>;
-      if (view==="login")     return <LoginView onLogin={handleLogin} onShowLanding={()=>setView("landing")} onRegister={()=>setView("register")}/>;
-      if (view==="register")  return <RegisterView onRegister={acc=>{handleRegister(acc);setView("dashboard");}} onBack={()=>setView("login")} accounts={accounts}/>;
-      if (view==="dashboard"&&currentUser) return <Dashboard currentUser={currentUser} cards={cards} progress={prog} settings={settings} onStudy={startStudy} onGlobalStudy={startGlobalStudy} onAdmin={()=>setView("admin")} onSettings={()=>setView("settings")} onLogout={logout} paymentStatus={paymentStatus} onClosePaymentBanner={()=>setPaymentStatus(null)}/>;
-      if (view==="study"&&studyCtx) return <StudyView label={studyCtx.label} queue={studyCtx.queue} onRate={handleRate} onBack={()=>setView("dashboard")} settings={settings} isAdmin={currentUser?.role==="admin"}/>;
-      if (view==="admin")     return <AdminView cards={cards} accounts={accounts} onSaveCard={handleSaveCard} onDeleteCard={handleDeleteCard} onSaveUser={handleSaveUser} onDeleteUser={handleDeleteUser} onBack={()=>setView("dashboard")}/>;
-      if (view==="settings")  return <SettingsView settings={settings} onSave={saveSet} onBack={()=>setView("dashboard")}/>;
-      return null;
+  useEffect(()=>{
+    if(!currentUser)return;
+    const params=new URLSearchParams(window.location.search);
+    const payment=params.get("payment");
+    if(!payment)return;
+    window.history.replaceState({},"",window.location.pathname);
+    setPaymentStatus(payment);
+    if(payment==="success"&&currentUser.role!=="admin"){
+      setTimeout(async()=>{
+        const accs=await supa.getAccounts();if(!accs)return;
+        setAccounts(accs);
+        const acc=accs.find(a=>a.username===currentUser.username);
+        if(acc){const planId=acc.plan_id||acc.planId;const plan=PLANS.find(p=>p.id===planId);const newUser={...currentUser,plan:{planId,groups:acc.groups||plan?.groups||[]}};setCurrentUser(newUser);storage.set("mx6-session",newUser);}
+      },2000);
     }
+    const t=setTimeout(()=>setPaymentStatus(null),8000);return()=>clearTimeout(t);
+  },[currentUser]);
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-  </script>
+  const handleLogin=(email,password)=>{
+    const lc=email.toLowerCase();
+    if(lc===ADMIN_USERNAME&&password===ADMIN_PASSWORD){const u={username:ADMIN_USERNAME,role:"admin",plan:{planId:"both",groups:ALL}};setProg(storage.get(`mx6-prog-${ADMIN_USERNAME}`)||{});setCurrentUser(u);storage.set("mx6-session",u);setView("dashboard");return true;}
+    const acc=accounts.find(a=>a.username===lc&&a.password===password);
+    if(acc){const planId=acc.plan_id||acc.planId;const plan=PLANS.find(p=>p.id===planId);const u={username:acc.username,role:"student",plan:{planId,groups:acc.groups||plan?.groups||[]}};setProg(storage.get(`mx6-prog-${lc}`)||{});setCurrentUser(u);storage.set("mx6-session",u);setView("dashboard");return true;}
+    return false;
+  };
+
+  const logout=()=>{storage.del("mx6-session");setCurrentUser(null);setProg({});setView("login");};
+  const saveProg=useCallback(p=>{setProg(p);if(currentUser)storage.set(`mx6-prog-${currentUser.username}`,p);},[currentUser]);
+  const saveSet=useCallback(s=>{setSettings(s);storage.set("mx6-settings",s);},[]);
+  const handleSaveCard=useCallback(async cd=>{await supa.upsertCard(cd);setCards(p=>p.find(c=>c.id===cd.id)?p.map(c=>c.id===cd.id?cd:c):[...p,cd]);},[]);
+  const handleDeleteCard=useCallback(async id=>{await supa.deleteCard(id);setCards(p=>p.filter(c=>c.id!==id));},[]);
+  const handleSaveUser=useCallback(async acc=>{await supa.upsertAccount(acc);setAccounts(p=>p.find(a=>a.username===acc.username)?p.map(a=>a.username===acc.username?{...a,...acc,plan_id:acc.planId}:a):[...p,{...acc,plan_id:acc.planId}]);},[]);
+  const handleDeleteUser=useCallback(async username=>{await supa.deleteAccount(username);setAccounts(p=>p.filter(a=>a.username!==username));},[]);
+  const handleRegister=useCallback(async newAcc=>{await supa.upsertAccount(newAcc);setAccounts(p=>[...p,{...newAcc,plan_id:newAcc.planId}]);const u={username:newAcc.username,role:"student",plan:{planId:newAcc.planId,groups:newAcc.groups}};setProg({});setCurrentUser(u);storage.set("mx6-session",u);},[]);
+
+  // startStudy now receives chapterId
+  const startStudy=useCallback((gid,num,chapterId,pkId)=>{
+    const queue=buildQueue(cards.filter(c=>c.groupId===gid&&c.num===num&&c.chapterId===chapterId&&c.packetId===pkId),prog,settings);
+    if(!queue.length){alert("Aucune carte à réviser !");return;}
+    const chName=getChapters(gid,num)[chapterId-1]||`Ch. ${chapterId}`;
+    const grp=GROUPS.find(g=>g.id===gid);
+    setStudyCtx({label:`${grp?.label} · Cours ${num} · ${chName} · ${PACKETS.find(p=>p.id===pkId)?.label}`,queue});
+    setView("study");
+  },[cards,prog,settings]);
+
+  const startGlobalStudy=useCallback(pkId=>{
+    const ids=currentUser?.plan?.groups||[];
+    const queue=buildQueue(cards.filter(c=>ids.includes(c.groupId)&&(!pkId||c.packetId===pkId)),prog,settings);
+    if(!queue.length){alert("Aucune carte à réviser !");return;}
+    setStudyCtx({label:pkId?`Révision globale · ${PACKETS.find(p=>p.id===pkId)?.label}`:"Révision globale · Toutes",queue});
+    setView("study");
+  },[cards,prog,currentUser,settings]);
+
+  const handleRate=useCallback(async(card,rating)=>{const np=computeNext(prog[card.id],rating,settings);saveProg({...prog,[card.id]:np});return np;},[prog,saveProg,settings]);
+
+  if(view==="loading") return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}><p style={{fontFamily:serif,fontSize:28,letterSpacing:-0.5}}>MyFlashcard</p><p style={{color:C.textLt,fontSize:13}}>Chargement…</p></div>;
+  if(view==="landing")   return <Landing onBack={()=>setView("login")} onRegister={()=>setView("register")}/>;
+  if(view==="login")     return <LoginView onLogin={handleLogin} onShowLanding={()=>setView("landing")} onRegister={()=>setView("register")}/>;
+  if(view==="register")  return <RegisterView onRegister={acc=>{handleRegister(acc);setView("dashboard");}} onBack={()=>setView("login")} accounts={accounts}/>;
+  if(view==="dashboard"&&currentUser) return <Dashboard currentUser={currentUser} cards={cards} progress={prog} settings={settings} onStudy={startStudy} onGlobalStudy={startGlobalStudy} onAdmin={()=>setView("admin")} onSettings={()=>setView("settings")} onLogout={logout} paymentStatus={paymentStatus} onClosePaymentBanner={()=>setPaymentStatus(null)}/>;
+  if(view==="study"&&studyCtx) return <StudyView label={studyCtx.label} queue={studyCtx.queue} onRate={handleRate} onBack={()=>setView("dashboard")} settings={settings} isAdmin={currentUser?.role==="admin"}/>;
+  if(view==="admin")     return <AdminView cards={cards} accounts={accounts} onSaveCard={handleSaveCard} onDeleteCard={handleDeleteCard} onSaveUser={handleSaveUser} onDeleteUser={handleDeleteUser} onBack={()=>setView("dashboard")}/>;
+  if(view==="settings")  return <SettingsView settings={settings} onSave={saveSet} onBack={()=>setView("dashboard")}/>;
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
 </body>
 </html>
