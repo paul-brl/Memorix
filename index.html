@@ -364,10 +364,10 @@
         setSending(true);
         try {
           const r = await fetch(`${EDGE_URL}/send-verification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "apikey": SUPA_KEY },
-            body: JSON.stringify({ email: form.email.trim().toLowerCase() }),
-          });
+  method: "POST",
+  headers: { "Content-Type": "application/json", "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` },
+  body: JSON.stringify({ email: form.email.trim().toLowerCase() }),
+});
           if (!r.ok) { const d = await r.json(); throw new Error(d.error || "Erreur envoi"); }
           setStep(2);
           startCooldown();
