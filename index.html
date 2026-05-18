@@ -265,18 +265,10 @@
     function PasswordStrength({ password }) {
       if (!password) return null;
       const { hasLen, hasSpecial } = validatePassword(password);
-      const Rule = ({ ok, label }) => (
-        <span style={{
-          fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4,
-          color: ok ? C.good : C.textLt,
-        }}>
-          {ok ? "✓" : "○"} {label}
-        </span>
-      );
       return (
         <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
-          <Rule ok={hasLen}     label="8 caractères min." />
-          <Rule ok={hasSpecial} label="1 caractère spécial (!@#…)" />
+          <span style={{fontSize:11,display:"inline-flex",alignItems:"center",gap:4,color:hasLen?C.good:C.textLt}}>{hasLen?"✓":"○"} 8 caractères min.</span>
+          <span style={{fontSize:11,display:"inline-flex",alignItems:"center",gap:4,color:hasSpecial?C.good:C.textLt}}>{hasSpecial?"✓":"○"} 1 caractère spécial (!@#…)</span>
         </div>
       );
     }
@@ -409,100 +401,6 @@
       useEffect(() => () => clearInterval(cooldownRef.current), []);
 
       // ── Rendu étape 1 ────────────────────────────────────────────────────
-      const FormStep = () => (
-        <div style={{animation:"fadeIn 0.3s ease"}}>
-          <div style={{background:C.utilBg,border:`1px solid ${C.util}30`,borderRadius:8,padding:"10px 14px",marginBottom:22}}>
-            <p style={{fontSize:12,color:C.util,margin:0,lineHeight:1.6}}>✓ Accès gratuit à l'offre <strong>Pré-rentrée</strong> — paiement possible depuis ton espace.</p>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:18}}>
-            <div>
-              <Lbl>Adresse email</Lbl>
-              <input
-                style={{...iLine, borderColor: form.email && !validateEmail(form.email) ? C.again : C.border}}
-                type="email" placeholder="votre@email.com"
-                value={form.email}
-                onChange={e=>setForm(p=>({...p,email:e.target.value}))}
-                autoFocus
-              />
-              {form.email && !validateEmail(form.email) && (
-                <p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Format d'email invalide</p>
-              )}
-            </div>
-            <div>
-              <PasswordField
-                label="Mot de passe"
-                value={form.password}
-                onChange={e=>setForm(p=>({...p,password:e.target.value}))}
-              />
-              <PasswordStrength password={form.password}/>
-            </div>
-            <PasswordField
-              label="Confirmer le mot de passe"
-              value={form.confirm}
-              onChange={e=>setForm(p=>({...p,confirm:e.target.value}))}
-              onKeyDown={e=>e.key==="Enter"&&handleSendCode()}
-            />
-            {form.confirm && form.confirm !== form.password && (
-              <p style={{fontSize:11,color:C.again,margin:"-10px 0 0"}}>Les mots de passe ne correspondent pas</p>
-            )}
-          </div>
-          {error&&<p style={{fontSize:12,color:C.again,margin:"14px 0 0",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
-          <Btn fill full style={{marginTop:24,fontSize:14,padding:"12px"}} onClick={handleSendCode} disabled={sending}>
-            {sending ? <><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Envoi du code…</> : "Recevoir le code de vérification →"}
-          </Btn>
-        </div>
-      );
-
-      // ── Rendu étape 2 ────────────────────────────────────────────────────
-      const CodeStep = () => (
-        <div style={{animation:"fadeIn 0.3s ease"}}>
-          <div style={{textAlign:"center",marginBottom:24}}>
-            <p style={{fontSize:40,margin:"0 0 12px"}}>📬</p>
-            <p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Vérifie ta boîte mail</p>
-            <p style={{fontSize:13,color:C.textMed,lineHeight:1.6}}>
-              Un code à 6 chiffres a été envoyé à<br/>
-              <strong style={{color:C.text}}>{form.email}</strong>
-            </p>
-          </div>
-          <div style={{marginBottom:20}}>
-            <Lbl>Code de vérification</Lbl>
-            <input
-              style={{
-                ...iLine,
-                fontSize:32, fontWeight:700, letterSpacing:14,
-                textAlign:"center", padding:"12px 0", fontFamily:mono,
-                borderBottom:`2px solid ${C.accent}`,
-              }}
-              type="text" inputMode="numeric" maxLength={6}
-              placeholder="000000"
-              value={code}
-              onChange={e=>setCode(e.target.value.replace(/\D/g,""))}
-              onKeyDown={e=>e.key==="Enter"&&handleVerify()}
-              autoFocus
-            />
-          </div>
-          {error&&<p style={{fontSize:12,color:C.again,margin:"0 0 14px",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
-          <Btn fill full style={{fontSize:14,padding:"12px",marginBottom:12}} onClick={handleVerify} disabled={verifying||code.length!==6}>
-            {verifying ? <><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Vérification…</> : "Créer mon compte →"}
-          </Btn>
-          <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:8}}>
-            <button onClick={()=>{setStep(1);setCode("");setError("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt,textDecoration:"underline"}}>
-              ← Modifier l'email
-            </button>
-            <button
-              onClick={()=>{if(resendCooldown>0)return;handleSendCode();}}
-              disabled={resendCooldown>0||sending}
-              style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:resendCooldown>0?"not-allowed":"pointer",color:resendCooldown>0?C.textLt:C.accent,textDecoration:"underline",opacity:resendCooldown>0?0.6:1}}
-            >
-              {resendCooldown > 0 ? `Renvoyer un code (${resendCooldown}s)` : "Renvoyer un code"}
-            </button>
-          </div>
-          <p style={{fontSize:11,color:C.textLt,textAlign:"center",marginTop:12,lineHeight:1.5}}>
-            Le code expire dans 10 minutes. Pense à vérifier tes spams.
-          </p>
-        </div>
-      );
-
       return (
         <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:420}}>
@@ -510,32 +408,58 @@
               <p style={{fontFamily:serif,fontSize:30,letterSpacing:-1,margin:"0 0 4px"}}>MyFlashcard</p>
               <p style={{fontFamily:mono,fontSize:9,letterSpacing:3,textTransform:"uppercase",color:C.textLt,margin:0}}>Créer un compte</p>
             </div>
-
-            {/* Indicateur d'étapes */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:24}}>
               {[1,2].map(s => (
                 <React.Fragment key={s}>
-                  <div style={{
-                    width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-                    background: step >= s ? C.accent : C.border,
-                    color: step >= s ? "#fff" : C.textLt,
-                    fontSize:12,fontWeight:600,transition:"all 0.3s",
-                  }}>{step > s ? "✓" : s}</div>
-                  {s < 2 && <div style={{width:40,height:2,background:step>1?C.accent:C.border,transition:"background 0.3s"}}/>}
+                  <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:step>=s?C.accent:C.border,color:step>=s?"#fff":C.textLt,fontSize:12,fontWeight:600}}>{step>s?"✓":s}</div>
+                  {s<2&&<div style={{width:40,height:2,background:step>1?C.accent:C.border}}/>}
                 </React.Fragment>
               ))}
             </div>
-            <p style={{textAlign:"center",fontSize:12,color:C.textLt,margin:"0 0 20px"}}>
-              {step===1?"Étape 1 — Informations":"Étape 2 — Confirmation email"}
-            </p>
-
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"28px 28px",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
-              {step === 1 ? <FormStep/> : <CodeStep/>}
+            <p style={{textAlign:"center",fontSize:12,color:C.textLt,margin:"0 0 20px"}}>{step===1?"Étape 1 — Informations":"Étape 2 — Confirmation email"}</p>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"28px",boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+              {step===1&&<div>
+                <div style={{background:C.utilBg,border:`1px solid ${C.util}30`,borderRadius:8,padding:"10px 14px",marginBottom:22}}>
+                  <p style={{fontSize:12,color:C.util,margin:0,lineHeight:1.6}}>✓ Accès gratuit à l'offre <strong>Pré-rentrée</strong> — paiement possible depuis ton espace.</p>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:18}}>
+                  <div>
+                    <Lbl>Adresse email</Lbl>
+                    <input style={{...iLine,borderColor:form.email&&!validateEmail(form.email)?C.again:C.border}} type="email" placeholder="votre@email.com" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/>
+                    {form.email&&!validateEmail(form.email)&&<p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Format d'email invalide</p>}
+                  </div>
+                  <div>
+                    <PasswordField label="Mot de passe" value={form.password} onChange={e=>setForm(p=>({...p,password:e.target.value}))}/>
+                    <PasswordStrength password={form.password}/>
+                  </div>
+                  <div>
+                    <PasswordField label="Confirmer le mot de passe" value={form.confirm} onChange={e=>setForm(p=>({...p,confirm:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSendCode()}/>
+                    {form.confirm&&form.confirm!==form.password&&<p style={{fontSize:11,color:C.again,margin:"4px 0 0"}}>Les mots de passe ne correspondent pas</p>}
+                  </div>
+                </div>
+                {error&&<p style={{fontSize:12,color:C.again,margin:"14px 0 0",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
+                <Btn fill full style={{marginTop:24,fontSize:14,padding:"12px"}} onClick={handleSendCode} disabled={sending}>{sending?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Envoi…</>:"Recevoir le code de vérification →"}</Btn>
+              </div>}
+              {step===2&&<div>
+                <div style={{textAlign:"center",marginBottom:24}}>
+                  <p style={{fontSize:40,margin:"0 0 12px"}}>📬</p>
+                  <p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Vérifie ta boîte mail</p>
+                  <p style={{fontSize:13,color:C.textMed,lineHeight:1.6}}>Code envoyé à<br/><strong style={{color:C.text}}>{form.email}</strong></p>
+                </div>
+                <div style={{marginBottom:20}}>
+                  <Lbl>Code de vérification</Lbl>
+                  <input style={{...iLine,fontSize:32,fontWeight:700,letterSpacing:14,textAlign:"center",padding:"12px 0",fontFamily:mono,borderBottom:`2px solid ${C.accent}`}} type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} onKeyDown={e=>e.key==="Enter"&&handleVerify()} autoFocus/>
+                </div>
+                {error&&<p style={{fontSize:12,color:C.again,margin:"0 0 14px",background:C.againBg,padding:"8px 12px",borderRadius:6}}>{error}</p>}
+                <Btn fill full style={{fontSize:14,padding:"12px",marginBottom:12}} onClick={handleVerify} disabled={verifying||code.length!==6}>{verifying?<><span style={{display:"inline-block",animation:"spin 0.8s linear infinite"}}>↻</span> Vérification…</>:"Créer mon compte →"}</Btn>
+                <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:8}}>
+                  <button onClick={()=>{setStep(1);setCode("");setError("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt,textDecoration:"underline"}}>← Modifier l'email</button>
+                  <button onClick={()=>{if(resendCooldown>0)return;handleSendCode();}} disabled={resendCooldown>0||sending} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:resendCooldown>0?"not-allowed":"pointer",color:resendCooldown>0?C.textLt:C.accent,textDecoration:"underline",opacity:resendCooldown>0?0.6:1}}>{resendCooldown>0?`Renvoyer (${resendCooldown}s)`:"Renvoyer un code"}</button>
+                </div>
+                <p style={{fontSize:11,color:C.textLt,textAlign:"center",marginTop:12}}>Le code expire dans 10 minutes. Vérifie tes spams.</p>
+              </div>}
             </div>
-
-            <button onClick={onBack} style={{display:"block",margin:"20px auto 0",fontFamily:font,fontSize:13,background:"none",border:"none",color:C.textLt,cursor:"pointer",textDecoration:"underline"}}>
-              Déjà un compte ? Se connecter
-            </button>
+            <button onClick={onBack} style={{display:"block",margin:"20px auto 0",fontFamily:font,fontSize:13,background:"none",border:"none",color:C.textLt,cursor:"pointer",textDecoration:"underline"}}>Déjà un compte ? Se connecter</button>
           </div>
         </div>
       );
