@@ -126,23 +126,30 @@
 
     // ─── Constants ──────────────────────────────────────────────────────────
     const GROUPS = [
+      // ── Pré-rentrée (groupes indépendants, flashcards séparées) ──
+      { id: "pr-cell-bio", label: "Biologie cellulaire",                    sem: 0, nums: [1] },
+      { id: "pr-histo",    label: "Histologie & Biologie du développement",  sem: 0, nums: [1] },
+      { id: "pr-biochem",  label: "Biochimie",                               sem: 0, nums: [1] },
+      { id: "pr-biophys",  label: "Biophysique",                             sem: 0, nums: [1] },
+      { id: "pr-biostat",  label: "Biostatistique",                          sem: 0, nums: [1] },
+      // ── Semestre 1 ──
       { id: "cell-bio", label: "Biologie cellulaire",                    sem: 1, nums: [1,2,3]   },
       { id: "histo",    label: "Histologie & Biologie du développement",  sem: 1, nums: [1,2,3]   },
       { id: "biochem",  label: "Biochimie",                               sem: 1, nums: [1,2,3]   },
       { id: "biophys",  label: "Biophysique",                             sem: 1, nums: [1,2,3]   },
       { id: "biostat",  label: "Biostatistique",                          sem: 1, nums: [1]        },
+      // ── Semestre 2 ──
       { id: "anatomie", label: "Anatomie",                                sem: 2, nums: [1,2,3]   },
       { id: "physio",   label: "Physiologie",                             sem: 2, nums: [1,2,3,4] },
       { id: "medic",    label: "Introduction à la connaissance du médicament", sem: 2, nums: [1,2,3] },
       { id: "ssh",      label: "Sciences sociales et humaines",           sem: 2, nums: [1,2,3]   },
     ];
-    // Pré-rentrée = semestre 1 mais uniquement cours 1 pour chaque matière
-    const PRERENTREE_GROUPS = GROUPS.filter(g => g.sem === 1).map(g => g.id);
     const PACKETS = [
       { id: "prioritaire", label: "Prioritaire" },
       { id: "important",   label: "Important"   },
       { id: "utile",       label: "Utile"        },
     ];
+    const PRERENTREE_IDS = GROUPS.filter(g => g.sem === 0).map(g => g.id);
     const SEM1 = GROUPS.filter(g => g.sem === 1).map(g => g.id);
     const SEM2 = GROUPS.filter(g => g.sem === 2).map(g => g.id);
     const ALL  = [...SEM1, ...SEM2];
@@ -151,7 +158,7 @@
       { id: "sem1",       label: "Semestre 1",     price: "99 €",   groups: SEM1, desc: "Toutes les matières du semestre 1" },
       { id: "sem2",       label: "Semestre 2",     price: "149 €",  groups: SEM2, desc: "Toutes les matières du semestre 2" },
       { id: "both",       label: "Année complète", price: "200 €",  groups: ALL,  desc: "Tous les semestres · Accès illimité" },
-      { id: "prerentree", label: "Pré-rentrée",    price: "Gratuit",groups: PRERENTREE_GROUPS, desc: "Matières de pré-rentrée · Cours 1 offert" },
+      { id: "prerentree", label: "Pré-rentrée",    price: "Gratuit",groups: PRERENTREE_IDS, desc: "5 matières · Cours 1 offert" },
       { id: "g-cell-bio", label: "Biologie cellulaire",    price: "49 €", groups: ["cell-bio"], desc: "Cours 1, 2 et 3" },
       { id: "g-histo",    label: "Histologie & Bio. dév.", price: "39 €", groups: ["histo"],    desc: "Cours 1, 2 et 3" },
       { id: "g-biochem",  label: "Biochimie",              price: "39 €", groups: ["biochem"],  desc: "Cours 1, 2 et 3" },
@@ -393,7 +400,7 @@
         try {
           const valid = await supa.checkVerification(form.email.trim().toLowerCase(), code.trim());
           if (!valid) { setError("Code invalide ou expiré. Vérifie ta boîte mail ou demande un nouveau code."); return; }
-          const newAcc = { username: form.email.trim().toLowerCase(), password: form.password, email: form.email.trim().toLowerCase(), planId: "prerentree", groups: PRERENTREE_GROUPS };
+          const newAcc = { username: form.email.trim().toLowerCase(), password: form.password, email: form.email.trim().toLowerCase(), planId: "prerentree", groups: PRERENTREE_IDS };
           onRegister(newAcc);
         } catch (e) {
           setError(`Erreur lors de la vérification : ${e.message}`);
@@ -645,9 +652,9 @@
 
       // Semestre tabs: prerentree / sem1 / sem2
       const TABS = [
-        { id: "prerentree", label: "Pré-rentrée", sem: null, planIds: ["prerentree","sem1","sem2","both"], price: "Gratuit" },
-        { id: "sem1",       label: "Semestre 1",  sem: 1,    planIds: ["sem1","both"],                    price: "99 €" },
-        { id: "sem2",       label: "Semestre 2",  sem: 2,    planIds: ["sem2","both"],                    price: "149 €" },
+        { id: "prerentree", label: "Pré-rentrée", sem: 0, planIds: ["prerentree","sem1","sem2","both"], price: "Gratuit" },
+        { id: "sem1",       label: "Semestre 1",  sem: 1, planIds: ["sem1","both"],                    price: "99 €" },
+        { id: "sem2",       label: "Semestre 2",  sem: 2, planIds: ["sem2","both"],                    price: "149 €" },
       ];
       const planId = currentUser.plan?.planId || "prerentree";
       const defaultTab = planId === "sem2" ? "sem2" : planId === "both" ? "sem1" : planId === "sem1" ? "sem1" : "prerentree";
@@ -660,14 +667,11 @@
 
       // Groups shown for active tab
       const tabGroups = useMemo(() => {
-        if (activeTab === "prerentree") {
-          return GROUPS.filter(g => g.sem === 1).map(g => ({...g, nums:[1]}));
-        }
         const sem = TABS.find(t => t.id === activeTab)?.sem;
         return GROUPS.filter(g => g.sem === sem);
       }, [activeTab]);
 
-      const visibleIds = isAdmin ? ALL : userGroups;
+      const visibleIds = isAdmin ? [...PRERENTREE_IDS, ...ALL] : userGroups;
 
       function PktBtn({gid,num,pk}){
         const {total,due}=packetStats(cards,progress,gid,num,pk.id);
