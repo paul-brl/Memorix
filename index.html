@@ -667,47 +667,216 @@ function CardEditor({card,onSave,onCancel}){
 
 // ─── Admin Cards ──────────────────────────────────────────────────────────────
 function AdminCards({cards,onNew,onEdit,onDelete}){
-  const [fg,setFg]=useState("all"),[fn,setFn]=useState("all"),[fc,setFc]=useState("all"),[fp,setFp]=useState("all"),[s,setS]=useState(""),[delId,setDelId]=useState(null);
+  const [search,setSearch]=useState("");
+  const [sem,setSem]=useState("all");
+  const [fg,setFg]=useState("all");
+  const [fn,setFn]=useState("all");
+  const [fc,setFc]=useState("all");
+  const [fp,setFp]=useState("all");
+  const [delId,setDelId]=useState(null);
+  const [showFilters,setShowFilters]=useState(true);
+  const searchRef=useRef(null);
+
+  const semGroups=sem==="all"?GROUPS:GROUPS.filter(g=>sem==="pr"?g.sem===0:sem==="s1"?g.sem===1:g.sem===2);
+  const selGroup=GROUPS.find(g=>g.id===fg);
+  const availNums=selGroup?.nums||[];
   const availChapters=fg!=="all"&&fn!=="all"?getChapters(fg,fn):[];
-  const filtered=useMemo(()=>cards.filter(c=>(fg==="all"||c.groupId===fg)&&(fn==="all"||c.num===fn)&&(fc==="all"||c.chapterId===fc)&&(fp==="all"||c.packetId===fp)&&(!s||`${c.front} ${c.back}`.toLowerCase().includes(s.toLowerCase()))),[cards,fg,fn,fc,fp,s]);
-  const FB=({active,onClick,children,color,bg})=><button onClick={onClick} style={{fontFamily:font,fontSize:11,fontWeight:active?600:400,padding:"5px 12px",cursor:"pointer",borderRadius:20,border:`1.5px solid ${active?(color||C.accent):C.border}`,background:active?(bg||C.accentBg):"transparent",color:active?(color||C.accent):C.textMed,whiteSpace:"nowrap"}}>{children}</button>;
-  return <div style={{maxWidth:800,margin:"0 auto",padding:24}}>
-    <div style={{position:"relative",marginBottom:14}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:C.textLt,fontSize:16}}>⌕</span><input style={{...iBox,paddingLeft:36,borderRadius:8}} placeholder="Rechercher…" value={s} onChange={e=>setS(e.target.value)}/>{s&&<button onClick={()=>setS("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:16}}>×</button>}</div>
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
-      <div style={{display:"flex",flexWrap:"wrap",gap:14}}>
-        <div><Lbl>Matière</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:5}}><FB active={fg==="all"} onClick={()=>{setFg("all");setFn("all");setFc("all");}}>Toutes</FB>{GROUPS.map(g=><FB key={g.id} active={fg===g.id} onClick={()=>{setFg(g.id);setFn("all");setFc("all");}}>{g.label.split(" ")[0]}{g.sem===0?" (PR)":g.sem===1?" (S1)":" (S2)"}</FB>)}</div></div>
-        <div><Lbl>Cours</Lbl><div style={{display:"flex",gap:5,marginTop:5}}><FB active={fn==="all"} onClick={()=>{setFn("all");setFc("all");}}>Tous</FB>{(fg!=="all"?GROUPS.find(g=>g.id===fg)?.nums||[1,2,3,4]:[1,2,3,4]).map(n=><FB key={n} active={fn===n} onClick={()=>{setFn(n);setFc("all");}}>{n}</FB>)}</div></div>
-        {availChapters.length>0&&<div><Lbl>Chapitre</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:5}}><FB active={fc==="all"} onClick={()=>setFc("all")}>Tous</FB>{availChapters.map((ch,i)=><FB key={i+1} active={fc===i+1} onClick={()=>setFc(i+1)}>{i+1}. {ch.split(" ").slice(0,2).join(" ")}…</FB>)}</div></div>}
-        <div><Lbl>Paquet</Lbl><div style={{display:"flex",gap:5,marginTop:5}}><FB active={fp==="all"} onClick={()=>setFp("all")}>Tous</FB>{PACKETS.map(pk=><FB key={pk.id} active={fp===pk.id} onClick={()=>setFp(pk.id)} color={pC(pk.id)} bg={pB(pk.id)}>{pk.label}</FB>)}</div></div>
-      </div>
+
+  const handleSemChange=v=>{setSem(v);setFg("all");setFn("all");setFc("all");};
+  const handleGroupChange=v=>{setFg(v);setFn("all");setFc("all");};
+  const handleNumChange=v=>{setFn(v);setFc("all");};
+  const clearAll=()=>{setSem("all");setFg("all");setFn("all");setFc("all");setFp("all");setSearch("");};
+  const hasFilters=sem!=="all"||fg!=="all"||fn!=="all"||fc!=="all"||fp!=="all"||search.trim();
+
+  const filtered=useMemo(()=>{
+    const q=search.toLowerCase().trim();
+    return cards.filter(c=>{
+      const g=GROUPS.find(gr=>gr.id===c.groupId);
+      if(sem!=="all"){const gSem=sem==="pr"?0:sem==="s1"?1:2;if(g?.sem!==gSem)return false;}
+      if(fg!=="all"&&c.groupId!==fg)return false;
+      if(fn!=="all"&&c.num!==fn)return false;
+      if(fc!=="all"&&c.chapterId!==fc)return false;
+      if(fp!=="all"&&c.packetId!==fp)return false;
+      if(q){const chName=getChapters(c.groupId,c.num)[c.chapterId-1]||"";const text=`${c.front} ${c.back} ${g?.label||""} ${chName}`.toLowerCase();if(!text.includes(q))return false;}
+      return true;
+    });
+  },[cards,sem,fg,fn,fc,fp,search]);
+
+  const stats=useMemo(()=>({
+    total:filtered.length,
+    prio:filtered.filter(c=>c.packetId==="prioritaire").length,
+    imp:filtered.filter(c=>c.packetId==="important").length,
+    utile:filtered.filter(c=>c.packetId==="utile").length,
+  }),[filtered]);
+
+  const Pill=({active,onClick,children,color,bg})=>(
+    <button onClick={onClick} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"5px 12px",cursor:"pointer",borderRadius:20,border:`1.5px solid ${active?(color||C.accent):C.border}`,background:active?(bg||C.accentBg):"transparent",color:active?(color||C.accent):C.textMed,whiteSpace:"nowrap",transition:"all 0.12s"}}>{children}</button>
+  );
+
+  return <div style={{maxWidth:880,margin:"0 auto",padding:24}}>
+
+    {/* Barre de recherche */}
+    <div style={{position:"relative",marginBottom:12}}>
+      <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",color:C.textLt,fontSize:18,pointerEvents:"none"}}>⌕</span>
+      <input ref={searchRef} style={{...iBox,paddingLeft:44,paddingRight:44,borderRadius:10,fontSize:14,border:`1.5px solid ${search?C.accent:C.border}`,transition:"border-color 0.2s"}}
+        placeholder="Rechercher dans le recto, verso, matière, chapitre…"
+        value={search} onChange={e=>setSearch(e.target.value)} autoFocus/>
+      {search&&<button onClick={()=>{setSearch("");searchRef.current?.focus();}} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.textLt,fontSize:20,lineHeight:1,display:"flex",alignItems:"center"}}>×</button>}
     </div>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><p style={{fontSize:13,color:C.textMed,margin:0}}><strong style={{color:C.text}}>{filtered.length}</strong> carte{filtered.length!==1?"s":""}</p>{(fg!=="all"||fn!=="all"||fc!=="all"||fp!=="all"||s)&&<button onClick={()=>{setFg("all");setFn("all");setFc("all");setFp("all");setS("");}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.textLt}}>✕ Effacer</button>}</div>
-    {filtered.length===0?(<div style={{border:`1.5px dashed ${C.border}`,borderRadius:10,padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:C.textLt,margin:"0 0 16px"}}>{cards.length===0?"Aucune carte.":"Aucune correspondance."}</p>{cards.length===0&&<Btn onClick={onNew}>Créer la première carte →</Btn>}</div>):(
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+
+    {/* Panneau filtres */}
+    <div style={{background:C.surface,border:`1px solid ${showFilters?C.accent:C.border}`,borderRadius:10,marginBottom:12,overflow:"hidden",transition:"border-color 0.2s"}}>
+      <div style={{padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:showFilters?`1px solid ${C.border}`:"none",cursor:"pointer",background:C.bg,userSelect:"none"}}
+        onClick={()=>setShowFilters(s=>!s)}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:13,fontWeight:500,color:C.textMed}}>🔍 Filtres</span>
+          {hasFilters&&<span style={{fontFamily:mono,fontSize:8,letterSpacing:1,padding:"2px 8px",borderRadius:10,background:C.accent,color:"#fff",fontWeight:700}}>ACTIFS</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          {hasFilters&&<button onClick={e=>{e.stopPropagation();clearAll();}} style={{fontFamily:font,fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.again,textDecoration:"underline"}}>✕ Tout effacer</button>}
+          <span style={{color:C.textLt,fontSize:11,fontFamily:mono}}>{showFilters?"▲":"▼"}</span>
+        </div>
+      </div>
+
+      {showFilters&&<div style={{padding:"16px",display:"flex",flexDirection:"column",gap:16}}>
+
+        {/* Semestre */}
+        <div>
+          <Lbl>Semestre</Lbl>
+          <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+            <Pill active={sem==="all"} onClick={()=>handleSemChange("all")}>Tous</Pill>
+            <Pill active={sem==="pr"} onClick={()=>handleSemChange("pr")} color={C.util} bg={C.utilBg}>Pré-rentrée</Pill>
+            <Pill active={sem==="s1"} onClick={()=>handleSemChange("s1")} color={C.accent} bg={C.accentBg}>Semestre 1</Pill>
+            <Pill active={sem==="s2"} onClick={()=>handleSemChange("s2")} color={C.imp} bg={C.impBg}>Semestre 2</Pill>
+          </div>
+        </div>
+
+        {/* Matière */}
+        <div>
+          <Lbl>Matière {fg!=="all"&&<span style={{color:C.accent}}>· {selGroup?.label}</span>}</Lbl>
+          <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+            <Pill active={fg==="all"} onClick={()=>handleGroupChange("all")}>Toutes</Pill>
+            {semGroups.map(g=>{
+              const col=g.sem===0?C.util:g.sem===1?C.accent:C.imp;
+              const bg=g.sem===0?C.utilBg:g.sem===1?C.accentBg:C.impBg;
+              return <Pill key={g.id} active={fg===g.id} onClick={()=>handleGroupChange(g.id)} color={col} bg={bg}>{g.label}</Pill>;
+            })}
+          </div>
+        </div>
+
+        {/* Cours — apparaît seulement si matière sélectionnée */}
+        {fg!=="all"&&availNums.length>0&&<div>
+          <Lbl>Cours</Lbl>
+          <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+            <Pill active={fn==="all"} onClick={()=>handleNumChange("all")}>Tous</Pill>
+            {availNums.map(n=><Pill key={n} active={fn===n} onClick={()=>handleNumChange(n)}>Cours {n}</Pill>)}
+          </div>
+        </div>}
+
+        {/* Chapitre — apparaît seulement si matière + cours sélectionnés */}
+        {availChapters.length>0&&<div>
+          <Lbl>Chapitre</Lbl>
+          <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+            <Pill active={fc==="all"} onClick={()=>setFc("all")}>Tous</Pill>
+            {availChapters.map((ch,i)=>(
+              <Pill key={i+1} active={fc===i+1} onClick={()=>setFc(i+1)}>{i+1}. {ch}</Pill>
+            ))}
+          </div>
+        </div>}
+
+        {/* Paquet */}
+        <div>
+          <Lbl>Paquet</Lbl>
+          <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+            <Pill active={fp==="all"} onClick={()=>setFp("all")}>Tous</Pill>
+            {PACKETS.map(pk=><Pill key={pk.id} active={fp===pk.id} onClick={()=>setFp(pk.id)} color={pC(pk.id)} bg={pB(pk.id)}>{pk.label}</Pill>)}
+          </div>
+        </div>
+
+      </div>}
+    </div>
+
+    {/* Barre de stats + bouton nouveau */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <p style={{fontSize:13,color:C.textMed,margin:0}}>
+          <strong style={{color:C.text,fontSize:15}}>{stats.total}</strong> carte{stats.total!==1?"s":""}
+          {hasFilters&&<span style={{color:C.textLt,fontSize:12}}> / {cards.length} au total</span>}
+        </p>
+        {stats.total>0&&<div style={{display:"flex",gap:5}}>
+          <span style={{fontFamily:mono,fontSize:9,padding:"2px 7px",borderRadius:10,background:C.prioBg,color:C.prio,fontWeight:600}}>{stats.prio} P</span>
+          <span style={{fontFamily:mono,fontSize:9,padding:"2px 7px",borderRadius:10,background:C.impBg,color:C.imp,fontWeight:600}}>{stats.imp} I</span>
+          <span style={{fontFamily:mono,fontSize:9,padding:"2px 7px",borderRadius:10,background:C.utilBg,color:C.util,fontWeight:600}}>{stats.utile} U</span>
+        </div>}
+      </div>
+      <Btn fill small onClick={onNew}>+ Nouvelle carte</Btn>
+    </div>
+
+    {/* Liste de cartes */}
+    {filtered.length===0?(
+      <div style={{border:`1.5px dashed ${C.border}`,borderRadius:10,padding:"48px 24px",textAlign:"center"}}>
+        <p style={{fontSize:36,margin:"0 0 12px"}}>{search?"🔍":"📭"}</p>
+        <p style={{fontSize:14,color:C.textLt,margin:"0 0 16px"}}>
+          {cards.length===0?"Aucune carte créée.":search?`Aucun résultat pour « ${search} »`:"Aucune carte pour ces filtres."}
+        </p>
+        {cards.length===0&&<Btn onClick={onNew}>Créer la première carte →</Btn>}
+        {hasFilters&&cards.length>0&&<button onClick={clearAll} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.accent,textDecoration:"underline",display:"block",margin:"8px auto 0"}}>Réinitialiser les filtres</button>}
+      </div>
+    ):(
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {filtered.map(card=>{
-          const grp=GROUPS.find(g=>g.id===card.groupId),col=pC(card.packetId),bg=pB(card.packetId);
+          const grp=GROUPS.find(g=>g.id===card.groupId);
+          const col=pC(card.packetId),bg=pB(card.packetId);
           const chName=getChapters(card.groupId,card.num)[card.chapterId-1];
-          return <div key={card.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",display:"flex"}}>
-            <div style={{width:4,background:col,flexShrink:0}}/>
-            <div style={{flex:1,padding:"12px 14px"}}>
-              <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
-                <Tag color={col} bg={bg} small>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
-                <Tag color={C.accent} bg={C.accentBg} small>{grp?.label}{grp?(grp.sem===0?" · PR":grp.sem===1?" · S1":" · S2"):""}</Tag>
-                <Tag color={C.textMed} bg={C.bg} small>Cours {card.num}</Tag>
-                {chName&&<Tag color={C.textMed} bg={C.bg} small>Ch.{card.chapterId} {chName.slice(0,18)}{chName.length>18?"…":""}</Tag>}
+          const semCol=grp?.sem===0?C.util:grp?.sem===1?C.accent:C.imp;
+          const semBg=grp?.sem===0?C.utilBg:grp?.sem===1?C.accentBg:C.impBg;
+          const semTag=grp?grp.sem===0?"PR":grp.sem===1?"S1":"S2":"";
+          const q=search.toLowerCase().trim();
+          const highlight=(text)=>{
+            if(!q||!text)return text;
+            const idx=text.toLowerCase().indexOf(q);
+            if(idx===-1)return text;
+            return <>{text.slice(0,idx)}<mark style={{background:"#fef08a",borderRadius:2,padding:"0 1px"}}>{text.slice(idx,idx+q.length)}</mark>{text.slice(idx+q.length)}</>;
+          };
+          return(
+            <div key={card.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",display:"flex",transition:"box-shadow 0.15s"}}
+              onMouseEnter={e=>e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,0.07)"}
+              onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+              <div style={{width:5,background:col,flexShrink:0}}/>
+              <div style={{flex:1,padding:"12px 16px"}}>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+                  <Tag color={col} bg={bg} small>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
+                  <Tag color={semCol} bg={semBg} small>{semTag}</Tag>
+                  <Tag color={C.textMed} bg={C.bg} small>{grp?.label}</Tag>
+                  <Tag color={C.textMed} bg={C.bg} small>Cours {card.num}</Tag>
+                  {chName&&<Tag color={C.textMed} bg={C.bg} small>Ch.{card.chapterId} — {chName}</Tag>}
+                </div>
+                {isOcclusion(card)?(
+                  <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🖼</span><p style={{fontFamily:serif,fontSize:14,color:C.text,margin:0}}>Image Occlusion</p></div>
+                ):(
+                  <>
+                    <p style={{fontFamily:serif,fontSize:14,color:C.text,margin:"0 0 4px",lineHeight:1.5}}>{highlight(card.front)}</p>
+                    <p style={{fontSize:12,color:C.textLt,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{highlight(card.back)}</p>
+                  </>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <Btn small fill onClick={()=>onEdit(card)}>✏ Modifier</Btn>
+                  <Btn small danger onClick={()=>setDelId(card.id)}>Supprimer</Btn>
+                </div>
               </div>
-              {isOcclusion(card)?<div style={{display:"flex",alignItems:"center",gap:8,margin:"0 0 3px"}}><span style={{fontSize:18}}>🖼</span><p style={{fontFamily:serif,fontSize:14,color:C.text,margin:0}}>Image Occlusion</p></div>:<p style={{fontFamily:serif,fontSize:14,color:C.text,margin:"0 0 3px",lineHeight:1.5}}>{card.front}</p>}
-              <p style={{fontSize:12,color:C.textLt,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isOcclusion(card)?"Zone masquée → image révélée":card.back}</p>
-              <div style={{display:"flex",gap:8,marginTop:10}}><Btn small onClick={()=>onEdit(card)}>✏ Modifier</Btn><Btn small danger onClick={()=>setDelId(card.id)}>Supprimer</Btn></div>
             </div>
-          </div>;
+          );
         })}
       </div>
     )}
-    {delId&&<Modal onClose={()=>setDelId(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>Action irréversible.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delId);setDelId(null);}}>Supprimer</Btn><Btn onClick={()=>setDelId(null)}>Annuler</Btn></div></Modal>}
+
+    {delId&&<Modal onClose={()=>setDelId(null)} width={320}>
+      <p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer ?</p>
+      <p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>Action irréversible.</p>
+      <div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delId);setDelId(null);}}>Supprimer</Btn><Btn onClick={()=>setDelId(null)}>Annuler</Btn></div>
+    </Modal>}
   </div>;
 }
-
 // ─── Admin Users ──────────────────────────────────────────────────────────────
 function AdminUsers({accounts,onSave,onDelete}){
   const [editor,setEditor]=useState(null),[form,setForm]=useState({username:"",password:"",planId:"sem1"}),[err,setErr]=useState(""),[delUser,setDelUser]=useState(null);
