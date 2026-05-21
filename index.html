@@ -447,7 +447,35 @@ function OcclusionCanvas({cardFront,showBack,showOthers}){
     try{
       const data=JSON.parse(cardFront);const canvas=canvasRef.current;if(!canvas)return;
       const ctx=canvas.getContext("2d");const img=new Image();
-      img.onload=()=>{canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);const target=data.zones.find(z=>z.id===data.targetZone);if(showBack){if(target){ctx.strokeStyle="#15803d";ctx.lineWidth=3;ctx.strokeRect(target.x-1,target.y-1,target.w+2,target.h+2);ctx.fillStyle="#15803d18";ctx.fillRect(target.x,target.y,target.w,target.h);}}else{data.zones.forEach((z,i)=>{const isTarget=z.id===data.targetZone;if(isTarget){ctx.fillStyle="#4e4a46";ctx.fillRect(z.x,z.y,z.w,z.h);ctx.strokeStyle="#1a1917";ctx.lineWidth=2;ctx.strokeRect(z.x,z.y,z.w,z.h);ctx.fillStyle="white";const fs=Math.min(z.h*0.5,30);ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("?",z.x+z.w/2,z.y+z.h/2);}else if(!showOthers){ctx.fillStyle=z.color+"cc";ctx.fillRect(z.x,z.y,z.w,z.h);ctx.strokeStyle=z.color;ctx.lineWidth=1.5;ctx.strokeRect(z.x,z.y,z.w,z.h);ctx.fillStyle="white";ctx.font=`bold ${Math.min(z.h*0.45,18)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(i+1),z.x+z.w/2,z.y+z.h/2);}});}};img.src=data.image;
+      img.onload=()=>{canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);
+        data.zones.forEach((z,i)=>{
+          const isTarget=z.id===data.targetZone;
+          if(showBack){
+            if(isTarget){
+              // Zone cible révélée : contour vert, image visible en transparence légère
+              ctx.strokeStyle="#15803d";ctx.lineWidth=3;ctx.strokeRect(z.x-1,z.y-1,z.w+2,z.h+2);
+              ctx.fillStyle="#15803d22";ctx.fillRect(z.x,z.y,z.w,z.h);
+            } else {
+              // Autres zones : noir opaque avec numéro (masquées même après révélation)
+              ctx.fillStyle="#000000";ctx.fillRect(z.x,z.y,z.w,z.h);
+              ctx.fillStyle="white";ctx.font=`bold ${Math.min(z.h*0.45,18)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(i+1),z.x+z.w/2,z.y+z.h/2);
+            }
+          } else {
+            if(isTarget){
+              // Zone à deviner : ROUGE opaque + "?"
+              ctx.fillStyle="#dc2626";ctx.fillRect(z.x,z.y,z.w,z.h);
+              ctx.strokeStyle="#991b1b";ctx.lineWidth=2;ctx.strokeRect(z.x,z.y,z.w,z.h);
+              ctx.fillStyle="white";const fs=Math.min(z.h*0.5,30);ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("?",z.x+z.w/2,z.y+z.h/2);
+            } else if(!showOthers){
+              // Autres zones (indices masqués) : NOIR opaque + numéro
+              ctx.fillStyle="#000000";ctx.fillRect(z.x,z.y,z.w,z.h);
+              ctx.strokeStyle="#222222";ctx.lineWidth=1;ctx.strokeRect(z.x,z.y,z.w,z.h);
+              ctx.fillStyle="white";ctx.font=`bold ${Math.min(z.h*0.45,18)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(i+1),z.x+z.w/2,z.y+z.h/2);
+            }
+            // showOthers=true : autres zones non dessinées → image visible (mode "voir les indices")
+          }
+        });
+      };img.src=data.image;
     }catch(e){console.error("OcclusionCanvas:",e);}
   },[cardFront,showBack,showOthers]);
   return <canvas ref={canvasRef} style={{maxWidth:"100%",maxHeight:300,borderRadius:8,display:"block",margin:"0 auto"}}/>;
@@ -961,9 +989,9 @@ function StudyView({label,queue,onRate,onBack,settings,isAdmin}){
       {isOcclusion(card)?(
         <div style={{marginBottom:22}}>
           <div style={{background:C.surface,border:`1.5px solid ${showBack?col:C.border}`,borderRadius:12,padding:"16px 20px",transition:"border-color 0.3s"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><Lbl>{showBack?"Réponse — zone révélée":showOthers?"Contexte visible":"Toutes les zones masquées"}</Lbl>{showBack&&<Tag color={C.good} bg={C.goodBg} small>Révélé</Tag>}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><Lbl>{showBack?"Réponse révélée":showOthers?"Indices visibles (image)":"Zone rouge = à deviner · Zones noires = masquées"}</Lbl>{showBack&&<Tag color={C.good} bg={C.goodBg} small>Révélé</Tag>}</div>
             <div onClick={()=>!showBack&&setShowBack(true)} style={{cursor:showBack?"default":"pointer"}}><OcclusionCanvas cardFront={card.front} showBack={showBack} showOthers={showOthers}/></div>
-            {!showBack&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}><button onClick={e=>{e.stopPropagation();setShowOthers(s=>!s);}} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"6px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${showOthers?C.imp:C.border}`,background:showOthers?C.impBg:"transparent",color:showOthers?C.imp:C.textMed,display:"flex",alignItems:"center",gap:6}}>{showOthers?"🙈 Masquer le contexte":"👁 Voir le contexte"}</button><button onClick={()=>setShowBack(true)} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${col}`,background:pB(card.packetId),color:col}}>Révéler →</button></div>}
+            {!showBack&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}><button onClick={e=>{e.stopPropagation();setShowOthers(s=>!s);}} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"6px 12px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${showOthers?C.imp:C.border}`,background:showOthers?C.impBg:"transparent",color:showOthers?C.imp:C.textMed,display:"flex",alignItems:"center",gap:6}}>{showOthers?"🔲 Masquer les indices":"👁 Voir les indices (image)"}</button><button onClick={()=>setShowBack(true)} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 14px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${col}`,background:pB(card.packetId),color:col}}>Révéler →</button></div>}
           </div>
         </div>
       ):(
