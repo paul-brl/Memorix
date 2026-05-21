@@ -855,15 +855,17 @@ function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlob
         <div style={{animation:"fadeIn 0.18s ease"}}>
           {/* ── Cours complet button ── */}
           {(()=>{
+            const courseDue=courseDueCount(allCards,progress,group.id,activeCours);
             const courseTotal=allCards.filter(c=>c.groupId===group.id&&c.num===activeCours).length;
             if(!courseTotal)return null;
+            const upToDate=courseTotal>0&&courseDue===0;
             return(
-              <div style={{padding:"10px 18px",borderBottom:`1px solid ${C.border}`,background:"#faf8ff",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+              <div style={{padding:"10px 18px",borderBottom:`1px solid ${C.border}`,background:courseDue>0?"#faf8ff":"#f9f9f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontFamily:mono,fontSize:9,letterSpacing:1,color:"#7c3aed",textTransform:"uppercase"}}>Cours {activeCours} complet</span>
-                  <span style={{fontFamily:mono,fontSize:9,color:"#9d79d6"}}>{courseTotal} carte{courseTotal>1?"s":""} · toutes les matières · dans l'ordre</span>
+                  <span style={{fontFamily:mono,fontSize:9,letterSpacing:1,color:"#7c3aed",textTransform:"uppercase",fontWeight:600}}>Cours {activeCours} complet</span>
+                  <span style={{fontFamily:mono,fontSize:9,color:courseDue>0?"#7c3aed":"#9ca3af"}}>{upToDate?"✓ tout à jour":`${courseDue} carte${courseDue>1?"s":""} à réviser`}</span>
                 </div>
-                <button onClick={()=>onStudy(group.id,activeCours,"__course__","__course__")} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 14px",cursor:"pointer",borderRadius:6,border:"1.5px solid #7c3aed",background:"#ede9fe",color:"#7c3aed",whiteSpace:"nowrap",flexShrink:0}}>Tout réviser →</button>
+                {courseDue>0&&<button onClick={()=>onStudy(group.id,activeCours,"__course__","__course__")} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 14px",cursor:"pointer",borderRadius:6,border:"1.5px solid #7c3aed",background:"#ede9fe",color:"#7c3aed",whiteSpace:"nowrap",flexShrink:0}}>Tout réviser ({courseDue}) →</button>}
               </div>
             );
           })()}
@@ -883,13 +885,17 @@ function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlob
                   </div>
                   <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap"}}>
                     {PACKETS.map(pk=><PktBtn key={pk.id} chapterId={chIdx} pk={pk}/>)}
-                    {/* ── Tout (chapter) button ── */}
-                    {chTotal>0&&(
-                      <button onClick={()=>onStudy(group.id,activeCours,chIdx,"__all__")} style={{fontFamily:font,fontSize:11,fontWeight:600,padding:"6px 10px",cursor:"pointer",borderRadius:6,border:"1.5px solid #7c3aed",background:"#ede9fe",color:"#7c3aed",display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:64}} title="Toutes les cartes de ce chapitre dans l'ordre">
-                        <span style={{fontSize:10}}>Tout</span>
-                        <span style={{fontSize:10,fontWeight:400}}>{chTotal} carte{chTotal>1?"s":""}</span>
-                      </button>
-                    )}
+                    {/* ── Tout (chapitre) : tous paquets combinés, SRS ── */}
+                    {chTotal>0&&(()=>{
+                      const hasDue=chDue>0;
+                      const upToDate=chTotal>0&&!hasDue;
+                      return(
+                        <button onClick={()=>hasDue&&onStudy(group.id,activeCours,chIdx,"__all__")} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"6px 10px",cursor:hasDue?"pointer":"default",borderRadius:6,border:`1.5px solid ${hasDue?"#7c3aed":upToDate?C.border:"#e8e5e0"}`,background:hasDue?"#ede9fe":C.surface,color:hasDue?"#7c3aed":upToDate?C.textLt:"#c0bbb5",display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:64}} title="Tous paquets combinés (Prioritaire + Important + Utile)">
+                          <span style={{fontSize:10,fontWeight:600}}>Tout</span>
+                          <span style={{fontSize:10,fontWeight:400}}>{hasDue?`${chDue} carte${chDue>1?"s":""}`:upToDate?"✓ à jour":"vide"}</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               );
@@ -1260,16 +1266,17 @@ function App(){
       setStudyCtx({label:"Mes flashcards personnelles",queue});setView("study");return;
     }
     const grp=GROUPS.find(g=>g.id===gid);
-    // "Tout" (chapter) or "Cours complet" — ALL cards in insertion order, no SRS filtering
+    // "Tout" (chapitre) ou "Cours complet" → même SRS que les boutons de paquets, mais tous paquets combinés
     if(pkId==="__all__"||pkId==="__course__"){
       const isCourse=pkId==="__course__";
       const filtered=allCards.filter(c=>c.groupId===gid&&c.num===num&&(isCourse||c.chapterId===chapterId));
-      if(!filtered.length){alert("Aucune carte dans cette sélection !");return;}
-      const chName=!isCourse&&chapterId?getChapters(gid,num)[chapterId-1]:"";
+      const queue=buildQueue(filtered,prog,settings); // SRS: only due cards
+      if(!queue.length){alert(isCourse?"Aucune carte à réviser pour ce cours !":"Aucune carte à réviser pour ce chapitre !");return;}
+      const chName=!isCourse&&chapterId?getChapters(gid,num)[chapterId-1]:`Ch.${chapterId}`;
       const label=isCourse
-        ?`${grp?.label} · Cours ${num} · Cours complet (${filtered.length} cartes)`
-        :`${grp?.label} · Cours ${num} · ${chName} · Tout (${filtered.length} cartes)`;
-      setStudyCtx({label,queue:filtered}); // All cards in order — no SRS buildQueue
+        ?`${grp?.label} · Cours ${num} · Cours complet`
+        :`${grp?.label} · Cours ${num} · ${chName} · Tout`;
+      setStudyCtx({label,queue});
       setView("study");return;
     }
     // Normal SRS study (only due cards)
