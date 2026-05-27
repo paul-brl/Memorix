@@ -169,6 +169,19 @@ const formatSeconds = (s) => {
   return `${h}h ${m}min`;
 };
 
+// ─── UserCards persistence helpers ───────────────────────────────────────────
+// integrated IDs: localStorage fallback so integration survives even if Supabase column is missing
+const getIntegratedIds = u => { try { return new Set(JSON.parse(localStorage.getItem(`mx6-integrated-${u}`)||'[]')); } catch { return new Set(); } };
+const saveIntegratedIds = (u, ids) => { try { localStorage.setItem(`mx6-integrated-${u}`, JSON.stringify([...ids])); } catch {} };
+// Merge Supabase cards with localStorage integrated flags
+const mergeIntegrated = (cards, username) => {
+  const localIds = getIntegratedIds(username);
+  return cards.map(c => ({...c, integrated: c.integrated || localIds.has(c.id)}));
+};
+// userCards cache: loads instantly on refresh, updated after every change
+const getUCache = u => { try { return JSON.parse(localStorage.getItem(`mx6-ucache-${u}`)||'[]'); } catch { return []; } };
+const setUCache = (u, cards) => { try { localStorage.setItem(`mx6-ucache-${u}`, JSON.stringify(cards)); } catch {} };
+
 const validateEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
 const validatePassword = p => { const hasLen=p.length>=8, hasSpecial=/[!@#$%^&*()\-_=+\[\]{};:'",.<>?/\\|`~]/.test(p); return {ok:hasLen&&hasSpecial,hasLen,hasSpecial}; };
 
@@ -1180,7 +1193,7 @@ function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlob
       ):activeTab==="mes-cartes"&&!isAdmin?(
         <MyCardsTab userCards={userCards||[]} onNew={onNewUserCard} onEdit={onEditUserCard} onDelete={onDeleteUserCard} onToggleIntegration={onToggleIntegration} progress={progress} onStudyUser={onStudyUser}/>
       ):activeTab==="shop"&&!isAdmin?(
-        <ShopTab userGroups={userGroups} planId={planId} username={currentUser.username} cards={cards} progress={progress} settings={settings} onStudy={onStudy} onShowPacks={()=>setShowUpgrade(true)}/>
+        <ShopTab userGroups={userGroups} planId={planId} username={currentUser.username} cards={allCards} progress={progress} settings={settings} onStudy={onStudy} onShowPacks={()=>setShowUpgrade(true)}/>
       ):tabHasAccess?(
         <div>
           <p style={{fontFamily:serif,fontSize:18,margin:"0 0 14px"}}>Par matière · Cours · Chapitre</p>
@@ -1347,6 +1360,11 @@ function App(){
           const restoredGroups=computeGroups(planId,groups,extra);
           const restored={...saved,plan:{planId,groups:restoredGroups}};
           setProg(storage.get(`mx6-prog-${saved.username}`)||{});
+          // Load userCards from cache instantly (Supabase fetch will update async)
+          if(saved.role!=="admin"){
+            const cached=mergeIntegrated(getUCache(saved.username),saved.username);
+            if(cached.length>0)setUserCards(cached);
+          }
           setCurrentUser(restored);
           storage.set("mx6-session",restored);
           setView("dashboard");
@@ -1442,25 +1460,40 @@ function App(){
   // ── User personal cards — fetched from user_cards table, private per user ──
   useEffect(()=>{
     if(!currentUser||currentUser.role==="admin"){setUserCards([]);return;}
-    supa.getUserCards(currentUser.username).then(uc=>setUserCards(uc||[])).catch(()=>{});
+    supa.getUserCards(currentUser.username).then(uc=>{
+      const merged=mergeIntegrated(uc||[],currentUser.username);
+      setUserCards(merged);
+      setUCache(currentUser.username,merged); // Update instant-load cache
+    }).catch(()=>{});
   },[currentUser?.username]);
 
   const handleSaveUserCard=useCallback(async(cardOrCards)=>{
     const list=Array.isArray(cardOrCards)?cardOrCards:[cardOrCards];
+    let newCards=[...userCards];
     for(const card of list){
       const c={...card,
         id:card.id||`u-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        username:currentUser.username,isUserCard:true};
+        username:currentUser.username,isUserCard:true,integrated:card.integrated||false};
       await supa.upsertUserCard(c);
-      setUserCards(prev=>prev.find(x=>x.id===c.id)?prev.map(x=>x.id===c.id?c:x):[...prev,c]);
+      newCards=newCards.find(x=>x.id===c.id)?newCards.map(x=>x.id===c.id?c:x):[...newCards,c];
     }
+    setUserCards(newCards);
+    setUCache(currentUser.username,newCards); // Persist cache
     setUserCardEditor(null);
-  },[currentUser]);
+  },[currentUser,userCards]);
 
   const handleDeleteUserCard=useCallback(async id=>{
     await supa.deleteUserCard(id);
-    setUserCards(prev=>prev.filter(c=>c.id!==id));
-  },[]);
+    setUserCards(prev=>{
+      const newCards=prev.filter(c=>c.id!==id);
+      setUCache(currentUser.username,newCards); // Persist cache
+      return newCards;
+    });
+    // Also remove from integrated localStorage
+    const ids=getIntegratedIds(currentUser.username);
+    ids.delete(id);
+    saveIntegratedIds(currentUser.username,ids);
+  },[currentUser,userCards]);
 
   // ── Background Supabase sync on login: picks up webhook-applied group changes ──
   useEffect(()=>{
@@ -1495,9 +1528,17 @@ function App(){
 
   const handleToggleIntegration=useCallback(async(card)=>{
     const updated={...card,integrated:!card.integrated};
-    await supa.upsertUserCard(updated);
-    setUserCards(prev=>prev.map(c=>c.id===card.id?updated:c));
-  },[]);
+    await supa.upsertUserCard(updated); // Supabase (primary)
+    // localStorage fallback (works even if Supabase integrated column missing)
+    const ids=getIntegratedIds(currentUser.username);
+    updated.integrated?ids.add(card.id):ids.delete(card.id);
+    saveIntegratedIds(currentUser.username,ids);
+    setUserCards(prev=>{
+      const newCards=prev.map(c=>c.id===card.id?updated:c);
+      setUCache(currentUser.username,newCards); // Update instant cache
+      return newCards;
+    });
+  },[currentUser]);
 
   // Study personal cards only (from MyCardsTab) — uses userCards, not allCards
   const startUserCardStudy=useCallback((gid,num,chapterId,pkId)=>{
