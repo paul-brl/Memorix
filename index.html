@@ -95,14 +95,14 @@ const supa = {
       const r = await fetch(`${SUPA_URL}/rest/v1/user_cards?username=eq.${encodeURIComponent(username)}&select=*`, { headers: H });
       const d = await r.json();
       if (!Array.isArray(d)) return [];
-      return d.map(c => ({ id:c.id, front:c.front, back:c.back, groupId:c.group_id, num:c.num, chapterId:c.chapter_id||1, packetId:c.packet_id, username:c.username, isUserCard:true }));
+      return d.map(c => ({ id:c.id, front:c.front, back:c.back, groupId:c.group_id, num:c.num, chapterId:c.chapter_id||1, packetId:c.packet_id, username:c.username, isUserCard:true, integrated:c.integrated||false }));
     } catch { return []; }
   },
   upsertUserCard: async (card) => {
     try {
       await fetch(`${SUPA_URL}/rest/v1/user_cards`, {
         method:"POST", headers:{...H,"Prefer":"resolution=merge-duplicates"},
-        body: JSON.stringify({ id:card.id, username:card.username, front:card.front, back:card.back, group_id:card.groupId, num:card.num, chapter_id:card.chapterId||1, packet_id:card.packetId }),
+        body: JSON.stringify({ id:card.id, username:card.username, front:card.front, back:card.back, group_id:card.groupId, num:card.num, chapter_id:card.chapterId||1, packet_id:card.packetId, integrated:card.integrated||false }),
       });
     } catch {}
   },
@@ -894,88 +894,141 @@ function StatsTab({username}){
 }
 
 // ─── MyCardsTab ──────────────────────────────────────────────────────────────
-function MyCardsTab({userCards,onNew,onEdit,onDelete,cards,progress,onStudy,currentUser}){
+function MyCardsTab({userCards,onNew,onEdit,onDelete,onToggleIntegration,progress,onStudyUser}){
   const [delId,setDelId]=useState(null);
-  const grouped=useMemo(()=>{
-    const map={};
-    userCards.forEach(c=>{
-      const key=`${c.groupId}|${c.num}|${c.chapterId}`;
-      if(!map[key])map[key]={groupId:c.groupId,num:c.num,chapterId:c.chapterId,cards:[]};
-      map[key].cards.push(c);
-    });
-    return Object.values(map);
-  },[userCards]);
 
-  const totalDue=userCards.filter(c=>{const p=progress[c.id];return !p?.next||new Date(p.next)<=new Date();}).length;
+  // Groups that have at least one personal card
+  const activeGroups=useMemo(()=>
+    GROUPS.filter(g=>userCards.some(c=>c.groupId===g.id))
+  ,[userCards]);
 
-  return(
-    <div style={{animation:"fadeIn 0.18s ease"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
-        <div>
-          <p style={{fontFamily:serif,fontSize:18,margin:"0 0 4px"}}>Mes flashcards personnelles</p>
-          <p style={{fontSize:13,color:C.textMed,margin:0,lineHeight:1.6}}>Cartes que tu crées toi-même · privées · synchronisées sur tous tes appareils</p>
+  const totalDue=userCards.filter(c=>isDue(progress[c.id])).length;
+  const integratedCount=userCards.filter(c=>c.integrated).length;
+
+  // GroupPanel: one per matière/group that has personal cards
+  function GroupPanel({group}){
+    const [activeCours,setActiveCours]=useState(null);
+    const [expandedCh,setExpandedCh]=useState(null); // expanded chapter to see individual cards
+    const groupCards=userCards.filter(c=>c.groupId===group.id);
+    const availNums=[...new Set(groupCards.map(c=>c.num))].sort((a,b)=>a-b);
+    const courseCards=activeCours?groupCards.filter(c=>c.num===activeCours):[];
+    const chapterIds=[...new Set(courseCards.map(c=>c.chapterId))].sort((a,b)=>a-b);
+
+    function UserPktBtn({chapterId,pk}){
+      const pkCards=courseCards.filter(c=>c.chapterId===chapterId&&c.packetId===pk.id);
+      const due=pkCards.filter(c=>isDue(progress[c.id])).length;
+      const total=pkCards.length;
+      const col=pC(pk.id),bg=pB(pk.id);
+      const hasDue=due>0,upToDate=total>0&&!hasDue;
+      return<button onClick={()=>hasDue&&onStudyUser(group.id,activeCours,chapterId,pk.id)} style={{fontFamily:font,fontSize:10,fontWeight:500,padding:"5px 8px",cursor:hasDue?"pointer":"default",borderRadius:6,border:`1.5px solid ${hasDue?col:upToDate?C.border:"#e8e5e0"}`,background:hasDue?bg:C.surface,color:hasDue?col:upToDate?C.textLt:"#c0bbb5",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:64}}>
+        <span style={{fontSize:9}}>{pk.label}</span>
+        <span style={{fontSize:9,fontWeight:400}}>{total===0?"vide":hasDue?`${due} carte${due>1?"s":""}`:upToDate?"✓ à jour":"vide"}</span>
+      </button>;
+    }
+
+    return<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:12}}>
+      {/* Header */}
+      <div style={{padding:"11px 18px",borderBottom:`1px solid ${C.border}`,background:C.bg,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <p style={{fontFamily:serif,fontSize:15,margin:0}}>{group.label}</p>
+          <Tag color={group.sem===1?C.accent:group.sem===2?C.imp:C.util} bg={group.sem===1?C.accentBg:group.sem===2?C.impBg:C.utilBg} small>{group.sem===0?"Pré-rentrée":group.sem===1?"Sem. 1":"Sem. 2"}</Tag>
+          <Tag color={C.textMed} bg={C.bg} small>{groupCards.length} carte{groupCards.length>1?"s":""}</Tag>
         </div>
-        <Btn fill onClick={onNew} style={{flexShrink:0}}>+ Créer une carte</Btn>
       </div>
-
-      {userCards.length===0?(
-        <div style={{border:`1.5px dashed ${C.border}`,borderRadius:12,padding:"48px 24px",textAlign:"center",background:C.surface}}>
-          <p style={{fontSize:36,margin:"0 0 12px"}}>✏️</p>
-          <p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Aucune carte personnelle</p>
-          <p style={{fontSize:13,color:C.textMed,margin:"0 0 20px",lineHeight:1.6}}>Crée tes propres flashcards pour compléter les cours officiels.<br/>Elles s'intègreront directement dans tes révisions.</p>
-          <Btn fill onClick={onNew}>Créer ma première carte →</Btn>
-        </div>
-      ):(
-        <>
-          {totalDue>0&&(
-            <div style={{background:C.accentBg,border:`1px solid ${C.accent}20`,borderRadius:10,padding:"12px 18px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div><p style={{fontSize:13,color:C.accent,fontWeight:600,margin:"0 0 2px"}}>{totalDue} carte{totalDue>1?"s":""} personnelle{totalDue>1?"s":""} à réviser</p><p style={{fontSize:11,color:C.textMed,margin:0}}>Incluses dans ta révision globale</p></div>
-              <button onClick={()=>onStudy("__user__",null,null,null)} style={{fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 16px",cursor:"pointer",borderRadius:6,border:`1.5px solid ${C.accent}`,background:C.accent,color:"#fff",whiteSpace:"nowrap"}}>Réviser mes cartes →</button>
+      {/* Course tabs */}
+      <div style={{display:"flex",gap:8,padding:"10px 18px",flexWrap:"wrap",borderBottom:activeCours?`1px solid ${C.border}`:"none",background:C.surface}}>
+        {availNums.map(n=>{
+          const active=activeCours===n;
+          const due=groupCards.filter(c=>c.num===n&&isDue(progress[c.id])).length;
+          return<button key={n} onClick={()=>{setActiveCours(active?null:n);setExpandedCh(null);}} style={{fontFamily:font,fontSize:12,fontWeight:active?600:400,padding:"8px 14px",cursor:"pointer",borderRadius:7,border:`1.5px solid ${active?"#7c3aed":due>0?C.good:C.border}`,background:active?"#ede9fe":due>0?C.goodBg:"transparent",color:active?"#7c3aed":due>0?C.good:C.textMed,display:"flex",alignItems:"center",gap:7}}>
+            <span>Cours {n}</span>
+            {due>0&&!active&&<span style={{fontFamily:mono,fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:10,background:C.good,color:"#fff"}}>{due}</span>}
+            <span style={{fontSize:10,opacity:0.6}}>{active?"▲":"▼"}</span>
+          </button>;
+        })}
+      </div>
+      {/* Chapter rows */}
+      {activeCours&&<div style={{animation:"fadeIn 0.18s ease"}}>
+        {chapterIds.length===0?<div style={{padding:"14px 18px"}}><p style={{fontSize:12,color:C.textLt,margin:0}}>Aucun chapitre défini pour ce cours.</p></div>:
+        chapterIds.map(chId=>{
+          const chCards=courseCards.filter(c=>c.chapterId===chId);
+          const chDue=chCards.filter(c=>isDue(progress[c.id])).length;
+          const chName=getChapters(group.id,activeCours)[chId-1]||`Chapitre ${chId}`;
+          const expanded=expandedCh===chId;
+          return<div key={chId}>
+            <div style={{display:"flex",alignItems:"center",padding:"9px 18px",gap:10,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,flex:1,minWidth:160}}>
+                <span style={{fontFamily:mono,fontSize:9,color:C.textLt,minWidth:18}}>{chId}</span>
+                <span style={{fontFamily:font,fontSize:13,color:chDue>0?C.text:C.textMed,fontWeight:chDue>0?500:400}}>{chName}</span>
+                {chDue>0&&<span style={{fontFamily:mono,fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:10,background:"#7c3aed",color:"#fff"}}>{chDue}</span>}
+              </div>
+              <div style={{display:"flex",gap:5,flexShrink:0}}>
+                {PACKETS.map(pk=><UserPktBtn key={pk.id} chapterId={chId} pk={pk}/>)}
+                {chDue>0&&<button onClick={()=>onStudyUser(group.id,activeCours,chId,null)} style={{fontFamily:font,fontSize:10,fontWeight:600,padding:"5px 8px",cursor:"pointer",borderRadius:6,border:"1.5px solid #7c3aed",background:"#ede9fe",color:"#7c3aed",minWidth:52,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}><span style={{fontSize:9}}>Tout</span><span style={{fontSize:9,fontWeight:400}}>{chDue} carte{chDue>1?"s":""}</span></button>}
+                <button onClick={()=>setExpandedCh(expanded?null:chId)} style={{fontFamily:font,fontSize:10,padding:"5px 8px",cursor:"pointer",borderRadius:6,border:`1px solid ${C.border}`,background:expanded?C.bg:"transparent",color:C.textMed}}>{expanded?"▲ Masquer":`▼ Voir (${chCards.length})`}</button>
+              </div>
             </div>
-          )}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {userCards.map(card=>{
-              const grp=GROUPS.find(g=>g.id===card.groupId);
-              const chName=getChapters(card.groupId,card.num)[card.chapterId-1];
-              const p=progress[card.id];
-              const isDueNow=!p?.next||new Date(p.next)<=new Date();
-              return(
-                <div key={card.id} style={{background:C.surface,border:`1px solid ${isDueNow?C.accent:C.border}`,borderRadius:8,overflow:"hidden",display:"flex",transition:"box-shadow 0.15s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,0.07)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
-                  <div style={{width:4,background:pC(card.packetId),flexShrink:0}}/>
-                  <div style={{flex:1,padding:"12px 16px"}}>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
-                      <Tag color={C.textMed} bg={"#f0ece6"} small>✏️ Personnel</Tag>
-                      <Tag color={pC(card.packetId)} bg={pB(card.packetId)} small>{PACKETS.find(p=>p.id===card.packetId)?.label}</Tag>
-                      {grp&&<Tag color={C.textMed} bg={C.bg} small>{grp.label}</Tag>}
-                      <Tag color={C.textMed} bg={C.bg} small>Cours {card.num}</Tag>
-                      {chName&&<Tag color={C.textMed} bg={C.bg} small>Ch.{card.chapterId} {chName}</Tag>}
-                      {isDueNow&&<Tag color={C.accent} bg={C.accentBg} small>À réviser</Tag>}
+            {/* Individual cards per chapter */}
+            {expanded&&<div style={{background:"#fafaf9"}}>
+              {chCards.map(card=>{
+                const pkLabel=PACKETS.find(p=>p.id===card.packetId)?.label;
+                const isIntegrated=card.integrated;
+                const dueCard=isDue(progress[card.id]);
+                return<div key={card.id} style={{borderTop:`1px solid ${C.border}`,padding:"10px 18px 10px 46px",display:"flex",alignItems:"flex-start",gap:12}}>
+                  <div style={{width:3,height:"100%",background:pC(card.packetId),borderRadius:2,flexShrink:0,marginTop:2}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:5}}>
+                      <Tag color={pC(card.packetId)} bg={pB(card.packetId)} small>{pkLabel}</Tag>
+                      {dueCard&&<Tag color={C.accent} bg={C.accentBg} small>À réviser</Tag>}
+                      {isIntegrated&&<Tag color={C.good} bg={C.goodBg} small>🔗 Intégré</Tag>}
                     </div>
-                    {isOcclusion(card)?<p style={{fontFamily:serif,fontSize:13,color:C.textMed,margin:0}}>🖼 Image Occlusion</p>:(
-                      <>
-                        <p style={{fontFamily:serif,fontSize:14,color:C.text,margin:"0 0 2px",lineHeight:1.4}}>{card.front}</p>
-                        <p style={{fontSize:12,color:C.textLt,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{card.back}</p>
-                      </>
-                    )}
-                    <div style={{display:"flex",gap:8,marginTop:10}}>
-                      <Btn small fill onClick={()=>onEdit(card)}>✏ Modifier</Btn>
-                      <Btn small danger onClick={()=>setDelId(card.id)}>Supprimer</Btn>
-                    </div>
+                    {isOcclusion(card)?<p style={{fontFamily:serif,fontSize:13,color:C.textMed,margin:0}}>🖼 Image Occlusion</p>:<>
+                      <p style={{fontFamily:serif,fontSize:13,color:C.text,margin:"0 0 2px",lineHeight:1.4}}>{card.front}</p>
+                      <p style={{fontSize:11,color:C.textLt,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{card.back}</p>
+                    </>}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-          <p style={{fontSize:11,color:C.textLt,textAlign:"center",margin:"20px 0 0"}}>{userCards.length} carte{userCards.length>1?"s":""} personnelle{userCards.length>1?"s":""} · stockées sur ton compte</p>
-        </>
-      )}
-      {delId&&<Modal onClose={()=>setDelId(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer cette carte ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>Action irréversible.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delId);setDelId(null);}}>Supprimer</Btn><Btn onClick={()=>setDelId(null)}>Annuler</Btn></div></Modal>}
+                  <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                    <button onClick={()=>onToggleIntegration(card)} title={isIntegrated?"Retirer des onglets semestres":"Intégrer dans les onglets semestres"} style={{fontFamily:font,fontSize:11,fontWeight:500,padding:"5px 10px",cursor:"pointer",borderRadius:5,border:`1.5px solid ${isIntegrated?C.good:C.border}`,background:isIntegrated?C.goodBg:"transparent",color:isIntegrated?C.good:C.textMed,whiteSpace:"nowrap"}}>
+                      {isIntegrated?"🔗 Intégré":"➕ Intégrer"}
+                    </button>
+                    <button onClick={()=>onEdit(card)} style={{fontFamily:font,fontSize:11,padding:"5px 8px",cursor:"pointer",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.textMed}}>✏</button>
+                    <button onClick={()=>setDelId(card.id)} style={{fontFamily:font,fontSize:11,padding:"5px 8px",cursor:"pointer",borderRadius:5,border:`1px solid ${C.again}`,background:C.againBg,color:C.again}}>×</button>
+                  </div>
+                </div>;
+              })}
+            </div>}
+          </div>;
+        })}
+      </div>}
+    </div>;
+  }
+
+  return<div style={{animation:"fadeIn 0.18s ease"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+      <div>
+        <p style={{fontFamily:serif,fontSize:18,margin:"0 0 4px"}}>Mes flashcards personnelles</p>
+        <p style={{fontSize:13,color:C.textMed,margin:0,lineHeight:1.6}}>Privées · Synchronisées sur tous tes appareils · {userCards.length} carte{userCards.length!==1?"s":""}</p>
+      </div>
+      <Btn fill onClick={onNew} style={{flexShrink:0}}>+ Créer une carte</Btn>
     </div>
-  );
+
+    {integratedCount>0&&<div style={{background:C.goodBg,border:`1px solid ${C.good}25`,borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:8}}><span>🔗</span><p style={{fontSize:12,color:C.good,margin:0}}><strong>{integratedCount} carte{integratedCount>1?"s":""} intégrée{integratedCount>1?"s":""}</strong> — apparaissent dans les onglets Semestre 1/2 aux côtés des cartes officielles</p></div>}
+
+    {userCards.length===0?<div style={{border:`1.5px dashed ${C.border}`,borderRadius:12,padding:"48px 24px",textAlign:"center",background:C.surface}}>
+      <p style={{fontSize:36,margin:"0 0 12px"}}>✏️</p>
+      <p style={{fontFamily:serif,fontSize:18,margin:"0 0 8px"}}>Aucune carte personnelle</p>
+      <p style={{fontSize:13,color:C.textMed,margin:"0 0 20px",lineHeight:1.6}}>Crée tes propres flashcards pour compléter les cours officiels.</p>
+      <Btn fill onClick={onNew}>Créer ma première carte →</Btn>
+    </div>:<div>
+      {activeGroups.map(g=><GroupPanel key={g.id} group={g}/>)}
+    </div>}
+
+    {delId&&<Modal onClose={()=>setDelId(null)} width={320}><p style={{fontFamily:serif,fontSize:20,margin:"0 0 8px"}}>Supprimer cette carte ?</p><p style={{fontSize:13,color:C.textMed,margin:"0 0 24px"}}>Action irréversible.</p><div style={{display:"flex",gap:10}}><Btn fill danger onClick={()=>{onDelete(delId);setDelId(null);}}>Supprimer</Btn><Btn onClick={()=>setDelId(null)}>Annuler</Btn></div></Modal>}
+  </div>;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlobalStudy,onAdmin,onSettings,onLogout,onNewUserCard,onEditUserCard,onDeleteUserCard,paymentStatus,onClosePaymentBanner}){
+function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlobalStudy,onAdmin,onSettings,onLogout,onNewUserCard,onEditUserCard,onDeleteUserCard,onToggleIntegration,onStudyUser,paymentStatus,onClosePaymentBanner}){
   const isAdmin=currentUser.role==="admin";
   const userGroups=currentUser.plan?.groups||[];
   const currentPlan=PLANS.find(p=>p.id===currentUser.plan?.planId);
@@ -993,8 +1046,8 @@ function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlob
   const defaultTab=planId==="sem2"?"sem2":planId==="both"?"sem1":planId==="sem1"?"sem1":"prerentree";
   const [activeTab,setActiveTab]=useState(defaultTab);
 
-  // Combine admin cards + user personal cards for study stats
-  const allCards=useMemo(()=>[...cards,...(userCards||[])],[cards,userCards]);
+  // GroupBlock stats use only integrated personal cards (non-integrated stay in MyCardsTab only)
+  const allCards=useMemo(()=>[...cards,...(userCards||[]).filter(c=>c.integrated)],[cards,userCards]);
 
   // hasTabAccess: only grants access via full semester/annual plans — individual subject access is in ShopTab only
   const hasTabAccess=useCallback(tab=>{
@@ -1125,7 +1178,7 @@ function Dashboard({currentUser,cards,userCards,progress,settings,onStudy,onGlob
       {activeTab==="stats"&&!isAdmin?(
         <StatsTab username={currentUser.username}/>
       ):activeTab==="mes-cartes"&&!isAdmin?(
-        <MyCardsTab userCards={userCards||[]} onNew={onNewUserCard} onEdit={onEditUserCard} onDelete={onDeleteUserCard} cards={cards} progress={progress} onStudy={onStudy} currentUser={currentUser}/>
+        <MyCardsTab userCards={userCards||[]} onNew={onNewUserCard} onEdit={onEditUserCard} onDelete={onDeleteUserCard} onToggleIntegration={onToggleIntegration} progress={progress} onStudyUser={onStudyUser}/>
       ):activeTab==="shop"&&!isAdmin?(
         <ShopTab userGroups={userGroups} planId={planId} username={currentUser.username} cards={cards} progress={progress} settings={settings} onStudy={onStudy} onShowPacks={()=>setShowUpgrade(true)}/>
       ):tabHasAccess?(
@@ -1440,7 +1493,33 @@ function App(){
     return()=>clearTimeout(timer);
   },[currentUser?.username]);
 
-  const allCards=useMemo(()=>[...cards,...userCards],[cards,userCards]);
+  const handleToggleIntegration=useCallback(async(card)=>{
+    const updated={...card,integrated:!card.integrated};
+    await supa.upsertUserCard(updated);
+    setUserCards(prev=>prev.map(c=>c.id===card.id?updated:c));
+  },[]);
+
+  // Study personal cards only (from MyCardsTab) — uses userCards, not allCards
+  const startUserCardStudy=useCallback((gid,num,chapterId,pkId)=>{
+    const filtered=userCards.filter(c=>
+      c.groupId===gid&&c.num===num&&
+      (chapterId===null||c.chapterId===chapterId)&&
+      (pkId===null||c.packetId===pkId)
+    );
+    const queue=buildQueue(filtered,prog,settings);
+    if(!queue.length){alert("Aucune carte personnelle à réviser dans cette sélection !");return;}
+    const grp=GROUPS.find(g=>g.id===gid);
+    const chName=chapterId?getChapters(gid,num)[chapterId-1]:"";
+    const pkLabel=pkId?PACKETS.find(p=>p.id===pkId)?.label:"Tout";
+    const label=`Personnel · ${grp?.label} · Cours ${num}${chName?" · "+chName:""}${pkLabel?" · "+pkLabel:""}`;
+    setStudyCtx({label,queue});
+    setView("study");
+  },[userCards,prog,settings]);
+
+  const allCards=useMemo(()=>[
+    ...cards,
+    ...userCards.filter(c=>c.integrated) // Only integrated personal cards appear in GroupBlock/onglets
+  ],[cards,userCards]);
 
   const startStudy=useCallback((gid,num,chapterId,pkId)=>{
     // Personal cards mode
@@ -1495,7 +1574,7 @@ function App(){
   if(view==="register")  return <RegisterView onRegister={acc=>{handleRegister(acc);setView("dashboard");}} onBack={()=>setView("login")} accounts={accounts}/>;
   // User card editor: CardEditor in user mode (creates to user_cards table)
   if(userCardEditor!==null&&currentUser?.role!=="admin")return <CardEditor card={userCardEditor||null} onSave={handleSaveUserCard} onCancel={()=>setUserCardEditor(null)} userGroups={currentUser?.plan?.groups||[]}/>;
-  if(view==="dashboard"&&currentUser) return <Dashboard currentUser={currentUser} cards={cards} userCards={userCards} progress={prog} settings={settings} onStudy={startStudy} onGlobalStudy={startGlobalStudy} onAdmin={()=>setView("admin")} onSettings={()=>setView("settings")} onLogout={logout} onNewUserCard={()=>setUserCardEditor(false)} onEditUserCard={c=>setUserCardEditor(c)} onDeleteUserCard={handleDeleteUserCard} paymentStatus={paymentStatus} onClosePaymentBanner={()=>setPaymentStatus(null)}/>;
+  if(view==="dashboard"&&currentUser) return <Dashboard currentUser={currentUser} cards={cards} userCards={userCards} progress={prog} settings={settings} onStudy={startStudy} onGlobalStudy={startGlobalStudy} onAdmin={()=>setView("admin")} onSettings={()=>setView("settings")} onLogout={logout} onNewUserCard={()=>setUserCardEditor(false)} onEditUserCard={c=>setUserCardEditor(c)} onDeleteUserCard={handleDeleteUserCard} onToggleIntegration={handleToggleIntegration} onStudyUser={startUserCardStudy} paymentStatus={paymentStatus} onClosePaymentBanner={()=>setPaymentStatus(null)}/>;
   if(view==="study"&&studyCtx) return <StudyView label={studyCtx.label} queue={studyCtx.queue} onRate={handleRate} onBack={()=>setView("dashboard")} settings={settings} isAdmin={currentUser?.role==="admin"}/>;
   if(view==="admin")     return <AdminView cards={cards} accounts={accounts} onSaveCard={handleSaveCard} onDeleteCard={handleDeleteCard} onSaveUser={handleSaveUser} onDeleteUser={handleDeleteUser} onBack={()=>setView("dashboard")}/>;
   if(view==="settings")  return <SettingsView settings={settings} onSave={saveSet} onBack={()=>setView("dashboard")}/>;
