@@ -635,9 +635,30 @@ function AdminUsers({accounts,onSave,onDelete}){
 
 function AdminView({cards,accounts,onSaveCard,onDeleteCard,onSaveUser,onDeleteUser,onBack}){
   const [tab,setTab]=useState("cards"),[subView,setSubView]=useState("list"),[editCard,setEditCard]=useState(null);
-  const handleSave=async(cardOrCards)=>{if(Array.isArray(cardOrCards)){for(const c of cardOrCards)await onSaveCard(c);}else{onSaveCard(cardOrCards);}setTimeout(()=>setSubView("list"),700);};
+  const [cardKey,setCardKey]=useState(0); // Remounts CardEditor after each save → fresh form
+  const [saveFlash,setSaveFlash]=useState(false);
+
+  const handleSave=async(cardOrCards)=>{
+    if(Array.isArray(cardOrCards)){for(const c of cardOrCards)await onSaveCard(c);}
+    else{onSaveCard(cardOrCards);}
+    if(editCard===null){
+      // Nouvelle carte : rester sur l'éditeur avec formulaire vierge + même classification
+      setSaveFlash(true);
+      setTimeout(()=>setSaveFlash(false),2000);
+      setCardKey(k=>k+1); // Remonte CardEditor → réinitialise front/back, garde la classification
+    } else {
+      // Modification : retour à la liste
+      setTimeout(()=>setSubView("list"),700);
+    }
+  };
+
   const TB=({id,label})=><button onClick={()=>setTab(id)} style={{fontFamily:font,fontSize:12,fontWeight:500,padding:"8px 18px",cursor:"pointer",border:"none",borderBottom:`2px solid ${tab===id?C.accent:"transparent"}`,background:"transparent",color:tab===id?C.accent:C.textMed}}>{label}</button>;
-  if(tab==="cards"&&subView==="editor")return <CardEditor card={editCard} onSave={handleSave} onCancel={()=>setSubView("list")}/>;
+  if(tab==="cards"&&subView==="editor")return(
+    <div>
+      {saveFlash&&<div style={{position:"fixed",bottom:24,right:24,zIndex:200,background:C.good,color:"#fff",borderRadius:8,padding:"12px 20px",fontFamily:font,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",display:"flex",alignItems:"center",gap:8,animation:"fadeIn 0.2s ease"}}>✓ Carte enregistrée — formulaire prêt pour la suivante</div>}
+      <CardEditor key={cardKey} card={editCard} onSave={handleSave} onCancel={()=>setSubView("list")}/>
+    </div>
+  );
   return <div style={{fontFamily:font,background:C.bg,minHeight:"100vh",color:C.text}}>
     <Nav left={<button onClick={onBack} style={{fontFamily:font,fontSize:13,background:"none",border:"none",cursor:"pointer",color:C.textMed}}>← Quitter l'admin</button>} center={`Admin · ${cards.length} cartes · ${accounts.length} étudiants`} right={tab==="cards"&&<Btn fill onClick={()=>{setEditCard(null);setSubView("editor");}}>+ Nouvelle carte</Btn>}/>
     <div style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 24px",display:"flex",gap:0}}><TB id="cards" label="📚 Flashcards"/><TB id="users" label="👤 Étudiants"/></div>
@@ -1353,6 +1374,7 @@ function App(){
   const [view,setView]=useState("loading"),[currentUser,setCurrentUser]=useState(null),[cards,setCards]=useState([]),[prog,setProg]=useState({}),[settings,setSettings]=useState(DEFAULT_SETTINGS),[accounts,setAccounts]=useState([]),[studyCtx,setStudyCtx]=useState(null),[paymentStatus,setPaymentStatus]=useState(null);
   const [userCards,setUserCards]=useState([]); // Personal cards for the logged-in user
   const [userCardEditor,setUserCardEditor]=useState(null); // null=hidden, false=new, card=edit
+  const [userCardKey,setUserCardKey]=useState(0); // Remounts user CardEditor after each new save
 
   useEffect(()=>{
     async function init(){
@@ -1531,6 +1553,7 @@ function App(){
 
   const handleSaveUserCard=useCallback(async(cardOrCards)=>{
     const list=Array.isArray(cardOrCards)?cardOrCards:[cardOrCards];
+    const isCreatingNew=!list[0]?.id||list[0]?.id?.startsWith("u-");
     let newCards=[...userCards];
     for(const card of list){
       const c={...card,
@@ -1546,8 +1569,14 @@ function App(){
       const c=newCards.find(x=>x.id===card.id)||card;
       supa.upsertUserCard(c).catch(()=>{});
     }
-    setUserCardEditor(null);
-  },[currentUser,userCards]);
+    if(userCardEditor===false){
+      // Creating new card: stay on editor, remount with fresh form
+      setUserCardKey(k=>k+1);
+    } else {
+      // Editing existing: close editor
+      setUserCardEditor(null);
+    }
+  },[currentUser,userCards,userCardEditor]);
 
   const handleDeleteUserCard=useCallback(async id=>{
     await supa.deleteUserCard(id);
@@ -1682,7 +1711,7 @@ function App(){
   if(view==="login")     return <LoginView onLogin={handleLogin} onShowLanding={()=>setView("landing")} onRegister={()=>setView("register")} accounts={accounts} onPasswordReset={(em,pwd)=>setAccounts(p=>p.map(a=>a.username===em?{...a,password:pwd}:a))}/>;
   if(view==="register")  return <RegisterView onRegister={acc=>{handleRegister(acc);setView("dashboard");}} onBack={()=>setView("login")} accounts={accounts}/>;
   // User card editor: CardEditor in user mode (creates to user_cards table)
-  if(userCardEditor!==null&&currentUser?.role!=="admin")return <CardEditor card={userCardEditor||null} onSave={handleSaveUserCard} onCancel={()=>setUserCardEditor(null)} userGroups={currentUser?.plan?.groups||[]}/>;
+  if(userCardEditor!==null&&currentUser?.role!=="admin")return <CardEditor key={userCardKey} card={userCardEditor||null} onSave={handleSaveUserCard} onCancel={()=>setUserCardEditor(null)} userGroups={currentUser?.plan?.groups||[]}/>;
   if(view==="dashboard"&&currentUser) return <Dashboard currentUser={currentUser} cards={cards} userCards={userCards} progress={prog} settings={settings} onStudy={startStudy} onGlobalStudy={startGlobalStudy} onAdmin={()=>setView("admin")} onSettings={()=>setView("settings")} onLogout={logout} onNewUserCard={()=>setUserCardEditor(false)} onEditUserCard={c=>setUserCardEditor(c)} onDeleteUserCard={handleDeleteUserCard} onToggleIntegration={handleToggleIntegration} onStudyUser={startUserCardStudy} paymentStatus={paymentStatus} onClosePaymentBanner={()=>setPaymentStatus(null)}/>;
   if(view==="study"&&studyCtx) return <StudyView label={studyCtx.label} queue={studyCtx.queue} onRate={handleRate} onBack={()=>setView("dashboard")} settings={settings} isAdmin={currentUser?.role==="admin"}/>;
   if(view==="admin")     return <AdminView cards={cards} accounts={accounts} onSaveCard={handleSaveCard} onDeleteCard={handleDeleteCard} onSaveUser={handleSaveUser} onDeleteUser={handleDeleteUser} onBack={()=>setView("dashboard")}/>;
